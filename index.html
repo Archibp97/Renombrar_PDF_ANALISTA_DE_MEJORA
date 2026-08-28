@@ -114,21 +114,61 @@ async function getWorker() {
   return worker;
 }
 
-// Intenta leer el pedido probando dos modos de lectura de página:
-// el modo automático (bueno para formularios simples "Pedido: XXX-COT-XXXX")
-// y el modo de columna única (mejor para tablas anchas de corte/ensamble).
+// ── Búsqueda por líneas cercanas (respaldo) ──────────────────────────────────
+// Caso real: en hojas de "corte" con columnas angostas, "COT-" queda impreso
+// en una línea y el número en la siguiente (el texto de otras columnas queda
+// mezclado en medio). Esto reconstruye las líneas por posición y busca el
+// número justo después de la línea que menciona "COT"/"CG".
+// OJO: esto es un respaldo de MENOR confianza ("parcial") — el OCR puede
+// confundir un dígito por otro incluso aquí, así que su resultado se muestra
+// siempre como "sugerencia a verificar", nunca se usa para renombrar solo.
+function buscarPorLineasCercanas(data) {
+  if (!data.lines) return { pedido: null, confianza: 'ninguna' };
+  const lineas = data.lines.map(l => l.words.map(w => w.text).filter(Boolean));
+  const tipoRe = /\bc[o0]t\b|\bcg\b/i;
+  const num6Re = /^\d{6}$/;
+  const num8Re = /^\d{8}$/;
+
+  for (let i = 0; i < lineas.length; i++) {
+    const textoLinea = lineas[i].join(' ');
+    if (!tipoRe.test(textoLinea)) continue;
+    const tipo = /\bcg\b/i.test(textoLinea) ? 'CG' : 'COT';
+    for (let j = i + 1; j < Math.min(i + 4, lineas.length); j++) {
+      if (!lineas[j].length) continue;
+      const primera = lineas[j][0];
+      if (tipo === 'COT' && num6Re.test(primera)) return { pedido: `???-COT-${primera}`, confianza: 'parcial' };
+      if (tipo === 'CG' && num8Re.test(primera)) return { pedido: `???-CG-${primera}`, confianza: 'parcial' };
+    }
+  }
+  return { pedido: null, confianza: 'ninguna' };
+}
+
+// Intenta leer el pedido probando varios modos de lectura de página:
+// el modo automático y el de columna única (buenos para formularios simples
+// "Pedido: XXX-COT-XXXX"), y como último recurso, modo de bloque uniforme +
+// búsqueda por líneas cercanas (mejor para tablas anchas de corte/ensamble).
 async function ocrFile(file) {
   const w = await getWorker();
 
   await w.setParameters({ tessedit_pageseg_mode: '3' });
   let { data } = await w.recognize(file);
-  let resultado = findPedido(data.text);
-  if (resultado.confianza === 'alta') return resultado;
+  const r1 = findPedido(data.text);
+  if (r1.confianza === 'alta') return r1;
 
   await w.setParameters({ tessedit_pageseg_mode: '4' });
   ({ data } = await w.recognize(file));
-  const resultado2 = findPedido(data.text);
-  return resultado2.confianza === 'alta' ? resultado2 : (resultado.confianza !== 'ninguna' ? resultado : resultado2);
+  const r2 = findPedido(data.text);
+  if (r2.confianza === 'alta') return r2;
+
+  await w.setParameters({ tessedit_pageseg_mode: '6' });
+  ({ data } = await w.recognize(file));
+  const r3 = findPedido(data.text);
+  if (r3.confianza === 'alta') return r3;
+
+  const rLineas = buscarPorLineasCercanas(data);
+  if (rLineas.confianza === 'parcial') return rLineas;
+
+  return [r1, r2, r3].find(c => c.confianza === 'parcial') || { pedido: null, confianza: 'ninguna' };
 }
 
 async function procesarTodos() {
@@ -202,7 +242,7 @@ function renderResultados(identificados, revisar) {
     html += `<table><thead><tr><th>Archivo</th><th>Motivo</th></tr></thead><tbody>`;
     revisar.forEach(d => {
       const motivo = d.confianza === 'parcial'
-        ? `Se detectó "${d.pedido}" pero falta el prefijo de 3 dígitos`
+        ? `Posible pedido: <strong>${d.pedido}</strong> — verifícalo contra la imagen, el OCR a veces confunde un dígito`
         : d.confianza === 'error' ? 'Error al leer la imagen' : 'No se encontró ningún número de pedido';
       html += `<tr><td>${d.file.name}</td><td>${motivo}</td></tr>`;
     });
