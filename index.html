@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Renombrador de Pedidos (OCR)</title>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <style>
 :root{--bg:#fff;--bg2:#f5f5f4;--bg3:#efefed;--text:#1c1c1a;--text2:#6b6b67;--text3:#9b9b96;--border:rgba(0,0,0,0.12);--green:#1D9E75;--gl:#E1F5EE;--gt:#085041;--blue:#378ADD;--bl:#E6F1FB;--bt:#0C447C;--amber:#BA7517;--al:#FAEEDA;--at:#633806;--r:10px;--rs:6px;}
 *{box-sizing:border-box;margin:0;padding:0;}
@@ -50,7 +51,26 @@ a.dl:hover{text-decoration:underline;}
     <code>024-COT-610115</code> o <code>016-CG-00002465</code>. Si lo encuentra con seguridad, te da el archivo
     ya renombrado para descargar. Si no está seguro (tablas muy anchas, números escritos a mano, escaneos
     borrosos), el archivo queda en <strong>"Para revisar"</strong> sin tocar — nunca inventa un nombre.
-    Todo corre en tu navegador; las imágenes no se suben a ningún servidor.
+    Todo corre en tu navegador; las imágenes no se suben a ningún servidor (salvo que actives el respaldo
+    con Gemini de abajo, que sí envía la imagen a Google).
+  </div>
+
+  <div class="card">
+    <div class="section-title" style="margin-top:0">🤖 Respaldo con IA (Gemini) — opcional</div>
+    <div class="note" style="margin-bottom:12px;">
+      Solo se usa para los archivos que Tesseract NO pudo leer solo (incluye manuscritos, que Tesseract
+      prácticamente no lee). En el <strong>tier gratis</strong> de Gemini, Google puede usar las imágenes que
+      le mandes para mejorar sus productos — tus documentos tienen datos de clientes, tenlo en cuenta. Con
+      facturación activada en tu cuenta de Google (unos centavos por esto) ya no se usan para entrenar nada.
+      Tu clave se guarda solo en este navegador (nunca en ningún servidor mío ni de terceros) y solo se envía
+      a Google al hacer cada consulta. Consíguela gratis en
+      <a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com/apikey</a>.
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:10px;">
+      <input type="checkbox" id="usar-gemini" onchange="toggleGemini()"> Usar Gemini como respaldo
+    </label>
+    <input type="password" id="gemini-key" placeholder="Tu API key de Gemini" disabled
+           oninput="localStorage.setItem('gemini_api_key', this.value)">
   </div>
 
   <div class="card">
@@ -91,6 +111,77 @@ function findPedido(text) {
 
 let archivosSeleccionados = [];
 let worker = null;
+
+// ── Config de Gemini ──────────────────────────────────────────────────────────
+// NOTA: Google retira modelos seguido. Si esto deja de funcionar (error 404),
+// entra a https://ai.google.dev/gemini-api/docs/models y cambia el nombre
+// aquí por el modelo Flash/Flash-Lite gratis vigente.
+const GEMINI_MODEL = 'gemini-3.5-flash';
+const GEMINI_PROMPT = `Esta imagen es un formulario de "Orden de producción" o "Pedido de venta" de una empresa de cortinas/persianas. Busca el número de pedido, que sigue el formato "NNN-COT-NNNNNN" (3 dígitos, guion, las letras COT, guion, 6 dígitos) o "NNN-CG-NNNNNNNN" (3 dígitos, guion, las letras CG, guion, 8 dígitos). El número puede estar impreso O ESCRITO A MANO, en cualquier parte de la imagen (a veces anotado a mano cerca de un borde).
+
+Responde ÚNICAMENTE con el número en ese formato exacto, sin texto adicional ni explicación. Si hay varios números de pedido visibles, elige el que esté junto a la palabra "Pedido". Si no encuentras ninguno o no estás seguro, responde exactamente: NINGUNO`;
+
+function toggleGemini() {
+  const activo = document.getElementById('usar-gemini').checked;
+  document.getElementById('gemini-key').disabled = !activo;
+  localStorage.setItem('usar_gemini', activo ? '1' : '0');
+}
+
+function geminiHabilitado() {
+  return document.getElementById('usar-gemini').checked && geminiApiKey().length > 0;
+}
+
+function geminiApiKey() {
+  return document.getElementById('gemini-key').value.trim();
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result.split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+// Le pregunta a Gemini directamente por el número de pedido. A diferencia de
+// Tesseract, esto SÍ puede leer texto manuscrito razonablemente bien — pero
+// sigue siendo una IA "adivinando" a partir de una imagen, no un lector de
+// caracteres exacto, así que sus resultados se marcan con su propia etiqueta
+// ('gemini') para distinguirlos de una lectura OCR directa, y en la tabla se
+// muestran con una nota de "verificar".
+async function callGemini(file, apiKey) {
+  const base64 = await fileToBase64(file);
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+  const body = {
+    contents: [{
+      parts: [
+        { text: GEMINI_PROMPT },
+        { inline_data: { mime_type: file.type || 'image/jpeg', data: base64 } }
+      ]
+    }]
+  };
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+    body: JSON.stringify(body)
+  });
+
+  if (!res.ok) {
+    if (res.status === 429) throw new Error('límite de solicitudes de Gemini alcanzado, esperá un momento');
+    throw new Error(`Gemini respondió ${res.status}`);
+  }
+
+  const data = await res.json();
+  const texto = (data?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
+
+  const mCot = /^(\d{3})-COT-(\d{6})$/i.exec(texto);
+  if (mCot) return { pedido: `${mCot[1]}-COT-${mCot[2]}`, confianza: 'gemini' };
+  const mCg = /^(\d{3})-CG-(\d{8})$/i.exec(texto);
+  if (mCg) return { pedido: `${mCg[1]}-CG-${mCg[2]}`, confianza: 'gemini' };
+  return { pedido: null, confianza: 'ninguna' };
+}
 
 function onFilesSelected(e) {
   archivosSeleccionados = Array.from(e.target.files);
@@ -166,9 +257,18 @@ async function ocrFile(file) {
   if (r3.confianza === 'alta') return r3;
 
   const rLineas = buscarPorLineasCercanas(data);
-  if (rLineas.confianza === 'parcial') return rLineas;
+  const mejorTesseract = [r1, r2, r3, rLineas].find(c => c.confianza === 'parcial') || { pedido: null, confianza: 'ninguna' };
 
-  return [r1, r2, r3].find(c => c.confianza === 'parcial') || { pedido: null, confianza: 'ninguna' };
+  if (geminiHabilitado()) {
+    try {
+      const rGemini = await callGemini(file, geminiApiKey());
+      if (rGemini.confianza === 'gemini') return rGemini;
+    } catch (err) {
+      appendLog(`  (Gemini no pudo con este archivo: ${err.message})`);
+    }
+  }
+
+  return mejorTesseract;
 }
 
 async function procesarTodos() {
@@ -192,10 +292,11 @@ async function procesarTodos() {
     appendLog(`  -> ${resultado.pedido || 'SIN IDENTIFICAR'} (${resultado.confianza})`);
   }
 
-  // Agrupar los de confianza alta para detectar pedidos repetidos
+  // Agrupar los de confianza alta (OCR directo) Y los de Gemini, para
+  // detectar pedidos repetidos y numerarlos con sufijo si hace falta.
   const grupos = {};
   detectados.forEach(d => {
-    if (d.confianza === 'alta') {
+    if (d.confianza === 'alta' || d.confianza === 'gemini') {
       (grupos[d.pedido] = grupos[d.pedido] || []).push(d);
     }
   });
@@ -210,7 +311,7 @@ async function procesarTodos() {
     });
   });
 
-  const revisar = detectados.filter(d => d.confianza !== 'alta');
+  const revisar = detectados.filter(d => d.confianza !== 'alta' && d.confianza !== 'gemini');
 
   renderResultados(identificados, revisar);
   btn.disabled = false;
@@ -224,10 +325,13 @@ function renderResultados(identificados, revisar) {
   html += `<div class="card">`;
   html += `<div class="section-title">✅ Identificados (${identificados.length})</div>`;
   if (identificados.length) {
-    html += `<button class="btn-sm" onclick="descargarTodos()">Descargar todos</button>`;
-    html += `<table><thead><tr><th>Archivo original</th><th>Nuevo nombre</th><th></th></tr></thead><tbody>`;
+    html += `<button class="btn-sm" id="btn-descargar-todos" onclick="descargarTodos()">Descargar todos (.zip)</button>`;
+    html += `<table><thead><tr><th>Archivo original</th><th>Nuevo nombre</th><th>Fuente</th><th></th></tr></thead><tbody>`;
     identificados.forEach((d, i) => {
-      html += `<tr><td>${d.file.name}</td><td><strong>${d.nuevoNombre}</strong></td>` +
+      const fuente = d.confianza === 'gemini'
+        ? `<span class="badge parcial" title="Leído por IA — revisa antes de confiar del todo">IA (verificar)</span>`
+        : `<span class="badge alta">OCR</span>`;
+      html += `<tr><td>${d.file.name}</td><td><strong>${d.nuevoNombre}</strong></td><td>${fuente}</td>` +
               `<td><a class="dl" href="#" onclick="descargarUno(${i});return false;">Descargar</a></td></tr>`;
     });
     html += `</tbody></table>`;
@@ -253,6 +357,7 @@ function renderResultados(identificados, revisar) {
   html += `</div>`;
 
   cont.innerHTML = html;
+  cont.dataset.identificados = 'ok';
   window.__identificados = identificados; // guardado en memoria para las descargas
 }
 
@@ -266,10 +371,32 @@ function descargarUno(i) {
   a.remove();
 }
 
-function descargarTodos() {
-  window.__identificados.forEach((d, i) => {
-    setTimeout(() => descargarUno(i), i * 300); // pequeño intervalo para que el navegador no bloquee varias descargas seguidas
-  });
+// Empaqueta todo en un solo .zip y lo descarga de una vez, para que el
+// navegador no muestre un aviso de "permitir descargas múltiples" ni haya
+// que aceptar archivo por archivo.
+async function descargarTodos() {
+  const btn = document.getElementById('btn-descargar-todos');
+  const items = window.__identificados;
+  if (!items || !items.length) return;
+
+  btn.disabled = true;
+  btn.textContent = 'Preparando .zip...';
+
+  const zip = new JSZip();
+  for (const d of items) {
+    zip.file(d.nuevoNombre, d.file);
+  }
+  const blob = await zip.generateAsync({ type: 'blob' });
+
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'pedidos_renombrados.zip';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+
+  btn.disabled = false;
+  btn.textContent = 'Descargar todos (.zip)';
 }
 
 // Arrastrar y soltar
@@ -284,6 +411,15 @@ dz.addEventListener('drop', e => {
     archivosSeleccionados.length ? `${archivosSeleccionados.length} archivo(s) listos.` : '';
   document.getElementById('btn-procesar').disabled = archivosSeleccionados.length === 0;
 });
+
+// Recuperar la config de Gemini guardada en este navegador (si la había)
+(function initGemini() {
+  const key = localStorage.getItem('gemini_api_key') || '';
+  const activo = localStorage.getItem('usar_gemini') === '1';
+  document.getElementById('gemini-key').value = key;
+  document.getElementById('usar-gemini').checked = activo;
+  document.getElementById('gemini-key').disabled = !activo;
+})();
 </script>
 </body>
 </html>
