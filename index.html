@@ -71,6 +71,20 @@ a.dl:hover{text-decoration:underline;}
     </label>
     <input type="password" id="gemini-key" placeholder="Tu API key de Gemini" disabled
            oninput="localStorage.setItem('gemini_api_key', this.value)">
+
+    <hr style="border:none;border-top:0.5px solid var(--border);margin:14px 0;">
+
+    <div class="note" style="margin-bottom:12px;">
+      <strong>Segundo respaldo (opcional):</strong> OpenRouter con Qwen2.5-VL, gratis, con cuota
+      independiente de Gemini. Solo entra en juego si Gemini también falla o se queda sin cuota.
+      Consigue tu key en <a href="https://openrouter.ai/keys" target="_blank">openrouter.ai/keys</a> —
+      elige un modelo que termine en <code>:free</code> para no necesitar cargar saldo.
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:10px;">
+      <input type="checkbox" id="usar-openrouter" onchange="toggleOpenRouter()"> Usar OpenRouter como segundo respaldo
+    </label>
+    <input type="password" id="openrouter-key" placeholder="Tu API key de OpenRouter" disabled
+           oninput="localStorage.setItem('openrouter_api_key', this.value)">
   </div>
 
   <div class="card">
@@ -226,6 +240,93 @@ async function callGeminiLimitado(file, apiKey) {
   }
 }
 
+// ── OpenRouter (segundo respaldo, opcional) ──────────────────────────────────
+const OPENROUTER_MODEL = 'qwen/qwen2.5-vl-72b-instruct:free';
+
+function toggleOpenRouter() {
+  const activo = document.getElementById('usar-openrouter').checked;
+  document.getElementById('openrouter-key').disabled = !activo;
+  localStorage.setItem('usar_openrouter', activo ? '1' : '0');
+}
+
+function openRouterHabilitado() {
+  return document.getElementById('usar-openrouter').checked && openRouterApiKey().length > 0;
+}
+
+function openRouterApiKey() {
+  return document.getElementById('openrouter-key').value.trim();
+}
+
+async function callOpenRouter(file, apiKey) {
+  const base64 = await fileToBase64(file);
+  const mime = file.type || 'image/jpeg';
+  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: OPENROUTER_MODEL,
+      temperature: 0,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: GEMINI_PROMPT },
+            { type: 'image_url', image_url: { url: `data:${mime};base64,${base64}` } },
+          ],
+        },
+      ],
+    }),
+  });
+
+  if (!res.ok) {
+    if (res.status === 429) throw new Error('límite de solicitudes de OpenRouter alcanzado, esperá un momento');
+    throw new Error(`OpenRouter respondió ${res.status}`);
+  }
+
+  const data = await res.json();
+  const texto = (data?.choices?.[0]?.message?.content || '').trim();
+
+  const mCot = /^(\d{3})-COT-(\d{6})$/i.exec(texto);
+  if (mCot) return { pedido: `${mCot[1]}-COT-${mCot[2]}`, confianza: 'openrouter' };
+  const mCg = /^(\d{3})-CG-(\d{8})$/i.exec(texto);
+  if (mCg) return { pedido: `${mCg[1]}-CG-${mCg[2]}`, confianza: 'openrouter' };
+  return { pedido: null, confianza: 'ninguna' };
+}
+
+const OPENROUTER_RPM_LIMIT = 8;
+let openRouterTimestamps = [];
+let openRouterExitos = 0;
+let openRouterErrores = 0;
+
+async function esperarTurnoOpenRouter() {
+  while (true) {
+    const ahora = Date.now();
+    openRouterTimestamps = openRouterTimestamps.filter(t => ahora - t < 60000);
+    if (openRouterTimestamps.length < OPENROUTER_RPM_LIMIT) {
+      openRouterTimestamps.push(ahora);
+      return;
+    }
+    const esperar = 60000 - (ahora - openRouterTimestamps[0]) + 200;
+    appendLog(`  (esperando turno para OpenRouter, ${(esperar / 1000).toFixed(0)}s...)`);
+    await new Promise(r => setTimeout(r, esperar));
+  }
+}
+
+async function callOpenRouterLimitado(file, apiKey) {
+  await esperarTurnoOpenRouter();
+  try {
+    const resultado = await callOpenRouter(file, apiKey);
+    openRouterExitos++;
+    return resultado;
+  } catch (err) {
+    openRouterErrores++;
+    throw err;
+  }
+}
+
 function onFilesSelected(e) {
   archivosSeleccionados = Array.from(e.target.files);
   document.getElementById('file-count').textContent =
@@ -286,22 +387,49 @@ async function prepararImagen(file, maxDim = 2200) {
   });
 }
 
+const CONFIANZA_MINIMA_DIGITOS = 75;
+
+function verificarConfianzaDigitos(resultado, data) {
+  if (resultado.confianza !== 'alta' || !data.words || !data.words.length) return resultado;
+
+  const digitos = resultado.pedido.replace(/[^0-9]/g, '');
+  const palabrasRelevantes = data.words.filter(w => {
+    const soloDigitos = (w.text || '').replace(/[^0-9]/g, '');
+    return soloDigitos.length >= 3 && digitos.includes(soloDigitos);
+  });
+
+  if (palabrasRelevantes.length > 0) {
+    const confianzaMinima = Math.min(...palabrasRelevantes.map(w => w.confidence));
+    if (confianzaMinima < CONFIANZA_MINIMA_DIGITOS) {
+      return {
+        pedido: resultado.pedido,
+        confianza: 'parcial',
+        motivo: `el patrón calzó pero el OCR tiene poca confianza en esos dígitos (${confianzaMinima.toFixed(0)}/100) — puede haber leído mal alguno`,
+      };
+    }
+  }
+  return resultado;
+}
+
 async function ocrFileTesseract(file, w) {
   const imagen = await prepararImagen(file);
 
   await w.setParameters({ tessedit_pageseg_mode: '3' });
   let { data } = await w.recognize(imagen);
-  const r1 = findPedido(data.text);
+  let r1 = findPedido(data.text);
+  r1 = verificarConfianzaDigitos(r1, data);
   if (r1.confianza === 'alta') return r1;
 
   await w.setParameters({ tessedit_pageseg_mode: '4' });
   ({ data } = await w.recognize(imagen));
-  const r2 = findPedido(data.text);
+  let r2 = findPedido(data.text);
+  r2 = verificarConfianzaDigitos(r2, data);
   if (r2.confianza === 'alta') return r2;
 
   await w.setParameters({ tessedit_pageseg_mode: '6' });
   ({ data } = await w.recognize(imagen));
-  const r3 = findPedido(data.text);
+  let r3 = findPedido(data.text);
+  r3 = verificarConfianzaDigitos(r3, data);
   if (r3.confianza === 'alta') return r3;
 
   const rLineas = buscarPorLineasCercanas(data);
@@ -317,6 +445,9 @@ async function procesarTodos() {
   geminiExitos = 0;
   geminiErrores = 0;
   geminiTimestamps = [];
+  openRouterExitos = 0;
+  openRouterErrores = 0;
+  openRouterTimestamps = [];
 
   const archivos = archivosSeleccionados;
   const detectados = new Array(archivos.length);
@@ -362,6 +493,26 @@ async function procesarTodos() {
         }
       }
     }
+
+    if (openRouterHabilitado()) {
+      const pendientes = detectados.filter(d => d && d.confianza !== 'alta' && d.confianza !== 'gemini');
+      if (pendientes.length > 0) {
+        appendLog(`\nFase 3: consultando OpenRouter para ${pendientes.length} archivo(s) que siguen sin identificar...`);
+        for (let i = 0; i < pendientes.length; i++) {
+          const d = pendientes[i];
+          try {
+            const rOR = await callOpenRouterLimitado(d.file, openRouterApiKey());
+            if (rOR.confianza === 'openrouter') {
+              d.pedido = rOR.pedido;
+              d.confianza = rOR.confianza;
+            }
+            appendLog(`[OpenRouter ${i + 1}/${pendientes.length}] ${d.file.name} -> ${d.pedido || 'sigue sin identificar'}`);
+          } catch (err) {
+            appendLog(`[OpenRouter ${i + 1}/${pendientes.length}] ${d.file.name} -> error: ${err.message}`);
+          }
+        }
+      }
+    }
   } catch (err) {
     appendLog(`\n⚠️ Se detuvo por un error inesperado: ${err.message}`);
     appendLog('Sugerencia: probá con menos imágenes por tanda (ej. 10-15), o recargá la página e intentá de nuevo.');
@@ -375,7 +526,7 @@ async function procesarTodos() {
 
   const grupos = {};
   detectados.forEach(d => {
-    if (d.confianza === 'alta' || d.confianza === 'gemini') {
+    if (d.confianza === 'alta' || d.confianza === 'gemini' || d.confianza === 'openrouter') {
       (grupos[d.pedido] = grupos[d.pedido] || []).push(d);
     }
   });
@@ -390,12 +541,15 @@ async function procesarTodos() {
     });
   });
 
-  const revisar = detectados.filter(d => d.confianza !== 'alta' && d.confianza !== 'gemini');
+  const revisar = detectados.filter(d => d.confianza !== 'alta' && d.confianza !== 'gemini' && d.confianza !== 'openrouter');
 
   renderResultados(identificados, revisar);
 
   if (geminiHabilitado() && (geminiExitos + geminiErrores) > 0) {
     appendLog(`\nGemini: ${geminiExitos} llamada(s) exitosa(s), ${geminiErrores} con error (límite alcanzado u otro problema).`);
+  }
+  if (openRouterHabilitado() && (openRouterExitos + openRouterErrores) > 0) {
+    appendLog(`OpenRouter: ${openRouterExitos} llamada(s) exitosa(s), ${openRouterErrores} con error (límite alcanzado u otro problema).`);
   }
 
   btn.disabled = false;
@@ -426,7 +580,9 @@ function renderResultados(identificados, revisar) {
     html += `<table><thead><tr><th>Archivo original</th><th>Nuevo nombre</th><th>Fuente</th><th></th></tr></thead><tbody>`;
     identificados.forEach((d, i) => {
       const fuente = d.confianza === 'gemini'
-        ? `<span class="badge parcial" title="Leído por IA — revisa antes de confiar del todo">IA (verificar)</span>`
+        ? `<span class="badge parcial" title="Leído por Gemini — revisa antes de confiar del todo">IA: Gemini (verificar)</span>`
+        : d.confianza === 'openrouter'
+        ? `<span class="badge parcial" title="Leído por OpenRouter/Qwen — revisa antes de confiar del todo">IA: OpenRouter (verificar)</span>`
         : `<span class="badge alta">OCR</span>`;
       html += `<tr><td>${d.file.name}</td><td><strong>${d.nuevoNombre}</strong></td><td>${fuente}</td>` +
               `<td><a class="dl" href="#" onclick="descargarUno(${i});return false;">Descargar</a></td></tr>`;
@@ -442,7 +598,9 @@ function renderResultados(identificados, revisar) {
   if (revisar.length) {
     html += `<table><thead><tr><th>Archivo</th><th>Motivo</th></tr></thead><tbody>`;
     revisar.forEach(d => {
-      const motivo = d.confianza === 'parcial'
+      const motivo = d.motivo
+        ? d.motivo
+        : d.confianza === 'parcial'
         ? `Posible pedido: <strong>${d.pedido}</strong> — verifícalo contra la imagen, el OCR a veces confunde un dígito`
         : d.confianza === 'error' ? 'Error al leer la imagen' : 'No se encontró ningún número de pedido';
       html += `<tr><td>${d.file.name}</td><td>${motivo}</td></tr>`;
@@ -515,6 +673,12 @@ dz.addEventListener('drop', e => {
   document.getElementById('gemini-key').value = key;
   document.getElementById('usar-gemini').checked = activo;
   document.getElementById('gemini-key').disabled = !activo;
+
+  const orKey = localStorage.getItem('openrouter_api_key') || '';
+  const orActivo = localStorage.getItem('usar_openrouter') === '1';
+  document.getElementById('openrouter-key').value = orKey;
+  document.getElementById('usar-openrouter').checked = orActivo;
+  document.getElementById('openrouter-key').disabled = !orActivo;
 })();
 </script>
 </body>
