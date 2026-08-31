@@ -59,7 +59,12 @@ a.dl:hover{text-decoration:underline;}
     <div class="section-title" style="margin-top:0">🤖 Respaldo con IA (Gemini) — opcional</div>
     <div class="note" style="margin-bottom:12px;">
       Solo se usa para los archivos que Tesseract NO pudo leer solo (incluye manuscritos, que Tesseract
-      prácticamente no lee). 
+      prácticamente no lee). En el <strong>tier gratis</strong> de Gemini, Google puede usar las imágenes que
+      le mandes para mejorar sus productos — tus documentos tienen datos de clientes, tenlo en cuenta. Con
+      facturación activada en tu cuenta de Google (unos centavos por esto) ya no se usan para entrenar nada.
+      Tu clave se guarda solo en este navegador (nunca en ningún servidor mío ni de terceros) y solo se envía
+      a Google al hacer cada consulta. Consíguela gratis en
+      <a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com/apikey</a>.
     </div>
     <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:10px;">
       <input type="checkbox" id="usar-gemini" onchange="toggleGemini()"> Usar Gemini como respaldo
@@ -124,6 +129,9 @@ async function getWorkerPool() {
 }
 
 // ── Config de Gemini ──────────────────────────────────────────────────────────
+// NOTA: Google retira modelos seguido. Si esto deja de funcionar (error 404),
+// entra a https://ai.google.dev/gemini-api/docs/models y cambia el nombre
+// aquí por el modelo Flash/Flash-Lite gratis vigente.
 const GEMINI_MODEL = 'gemini-3.5-flash';
 const GEMINI_PROMPT = `Esta imagen es un formulario de "Orden de producción" o "Pedido de venta" de una empresa de cortinas/persianas. Busca el número de pedido, que sigue el formato "NNN-COT-NNNNNN" (3 dígitos, guion, las letras COT, guion, 6 dígitos) o "NNN-CG-NNNNNNNN" (3 dígitos, guion, las letras CG, guion, 8 dígitos). El número puede estar impreso O ESCRITO A MANO, en cualquier parte de la imagen (a veces anotado a mano cerca de un borde).
 
@@ -161,7 +169,11 @@ async function callGemini(file, apiKey) {
         { text: GEMINI_PROMPT },
         { inline_data: { mime_type: file.type || 'image/jpeg', data: base64 } }
       ]
-    }]
+    }],
+    // temperature: 0 = respuestas lo más consistentes posible entre llamadas.
+    // Sin esto, Gemini puede leer la MISMA imagen distinto en corridas
+    // distintas (es un modelo de IA, no un lector de caracteres exacto).
+    generationConfig: { temperature: 0 }
   };
 
   const res = await fetch(url, {
@@ -185,9 +197,10 @@ async function callGemini(file, apiKey) {
   return { pedido: null, confianza: 'ninguna' };
 }
 
-// Límite de llamadas simultáneas a Gemini, ahora que varios archivos se
-// procesan a la vez (ver worker pool) — evita chocar de golpe contra el
-// límite gratis por minuto (10-15 RPM).
+// Como ahora varios archivos se procesan a la vez (ver worker pool), varios
+// podrían querer llamar a Gemini al mismo tiempo. Esto limita a 2 llamadas
+// simultáneas para no disparar de golpe contra el límite por minuto gratis
+// de Gemini (10-15 RPM) — las demás esperan su turno en fila.
 let geminiEnVuelo = 0;
 const GEMINI_MAX_CONCURRENTE = 2;
 
@@ -303,6 +316,8 @@ async function procesarTodos() {
   // archivo libre de la cola en cuanto terminan el suyo.
   await Promise.all(pool.map(trabajador));
 
+  // Agrupar los de confianza alta (OCR directo) Y los de Gemini, para
+  // detectar pedidos repetidos y numerarlos con sufijo si hace falta.
   const grupos = {};
   detectados.forEach(d => {
     if (d.confianza === 'alta' || d.confianza === 'gemini') {
@@ -379,7 +394,7 @@ function renderResultados(identificados, revisar) {
   html += `</div>`;
 
   cont.innerHTML = html;
-  window.__identificados = identificados;
+  window.__identificados = identificados; // guardado en memoria para las descargas
   window.__revisar = revisar;
 }
 
@@ -393,6 +408,10 @@ function descargarUno(i) {
   a.remove();
 }
 
+// Empaqueta todo en un solo .zip, organizado en dos carpetas adentro:
+// "renombrados/" con los que sí se identificaron, y "revisar/" con los que
+// no (con su nombre original intacto). Así solo tienes que abrir la carpeta
+// "revisar/" y completar esos a mano — el resto ya queda listo.
 async function descargarTodos() {
   const btn = document.getElementById('btn-descargar-todos');
   const identificados = window.__identificados || [];
