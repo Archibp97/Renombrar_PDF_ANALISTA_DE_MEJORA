@@ -59,7 +59,12 @@ a.dl:hover{text-decoration:underline;}
     <div class="section-title" style="margin-top:0">🤖 Respaldo con IA (Gemini) — opcional</div>
     <div class="note" style="margin-bottom:12px;">
       Solo se usa para los archivos que Tesseract NO pudo leer solo (incluye manuscritos, que Tesseract
-      prácticamente no lee). 
+      prácticamente no lee). En el <strong>tier gratis</strong> de Gemini, Google puede usar las imágenes que
+      le mandes para mejorar sus productos — tus documentos tienen datos de clientes, tenlo en cuenta. Con
+      facturación activada en tu cuenta de Google (unos centavos por esto) ya no se usan para entrenar nada.
+      Tu clave se guarda solo en este navegador (nunca en ningún servidor mío ni de terceros) y solo se envía
+      a Google al hacer cada consulta. Consíguela gratis en
+      <a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com/apikey</a>.
     </div>
     <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:10px;">
       <input type="checkbox" id="usar-gemini" onchange="toggleGemini()"> Usar Gemini como respaldo
@@ -84,9 +89,6 @@ a.dl:hover{text-decoration:underline;}
 
 <script>
 // ── Patrones para detectar el número de pedido ───────────────────────────────
-// Se exige el largo EXACTO de dígitos por tipo (COT: 6, CG: 8) para que un
-// error de OCR que se coma un dígito (ej. 628548 -> 62854) NO genere un
-// renombrado "seguro" con el número equivocado — cae a revisión manual.
 const COT_FULL = /(\d{3})\s*-\s*(COT)\s*-\s*(\d{6})(?!\d)/i;
 const CG_FULL = /(\d{3})\s*-\s*(CG)\s*-\s*(\d{8})(?!\d)/i;
 const COT_PARTIAL = /\bCOT\s*-\s*(\d{6})(?!\d)/i;
@@ -105,12 +107,28 @@ function findPedido(text) {
 }
 
 let archivosSeleccionados = [];
-let worker = null;
+let workerPool = [];
+let workerPoolListo = null;
+
+// Cuántos motores OCR corren en paralelo. Usamos los núcleos disponibles
+// menos 1 (para no trabar el resto del navegador), con un mínimo de 2 y un
+// tope de 6 (más que eso no ayuda mucho y consume mucha memoria).
+const NUM_WORKERS = Math.min(6, Math.max(2, (navigator.hardwareConcurrency || 4) - 1));
+
+async function getWorkerPool() {
+  if (!workerPoolListo) {
+    workerPoolListo = (async () => {
+      appendLog(`Cargando ${NUM_WORKERS} motores OCR en paralelo (usa varios núcleos de tu PC)...`);
+      workerPool = await Promise.all(
+        Array.from({ length: NUM_WORKERS }, () => Tesseract.createWorker('spa+eng'))
+      );
+    })();
+  }
+  await workerPoolListo;
+  return workerPool;
+}
 
 // ── Config de Gemini ──────────────────────────────────────────────────────────
-// NOTA: Google retira modelos seguido. Si esto deja de funcionar (error 404),
-// entra a https://ai.google.dev/gemini-api/docs/models y cambia el nombre
-// aquí por el modelo Flash/Flash-Lite gratis vigente.
 const GEMINI_MODEL = 'gemini-3.5-flash';
 const GEMINI_PROMPT = `Esta imagen es un formulario de "Orden de producción" o "Pedido de venta" de una empresa de cortinas/persianas. Busca el número de pedido, que sigue el formato "NNN-COT-NNNNNN" (3 dígitos, guion, las letras COT, guion, 6 dígitos) o "NNN-CG-NNNNNNNN" (3 dígitos, guion, las letras CG, guion, 8 dígitos). El número puede estar impreso O ESCRITO A MANO, en cualquier parte de la imagen (a veces anotado a mano cerca de un borde).
 
@@ -139,12 +157,6 @@ function fileToBase64(file) {
   });
 }
 
-// Le pregunta a Gemini directamente por el número de pedido. A diferencia de
-// Tesseract, esto SÍ puede leer texto manuscrito razonablemente bien — pero
-// sigue siendo una IA "adivinando" a partir de una imagen, no un lector de
-// caracteres exacto, así que sus resultados se marcan con su propia etiqueta
-// ('gemini') para distinguirlos de una lectura OCR directa, y en la tabla se
-// muestran con una nota de "verificar".
 async function callGemini(file, apiKey) {
   const base64 = await fileToBase64(file);
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
@@ -178,6 +190,24 @@ async function callGemini(file, apiKey) {
   return { pedido: null, confianza: 'ninguna' };
 }
 
+// Límite de llamadas simultáneas a Gemini, ahora que varios archivos se
+// procesan a la vez (ver worker pool) — evita chocar de golpe contra el
+// límite gratis por minuto (10-15 RPM).
+let geminiEnVuelo = 0;
+const GEMINI_MAX_CONCURRENTE = 2;
+
+async function callGeminiLimitado(file, apiKey) {
+  while (geminiEnVuelo >= GEMINI_MAX_CONCURRENTE) {
+    await new Promise(r => setTimeout(r, 250));
+  }
+  geminiEnVuelo++;
+  try {
+    return await callGemini(file, apiKey);
+  } finally {
+    geminiEnVuelo--;
+  }
+}
+
 function onFilesSelected(e) {
   archivosSeleccionados = Array.from(e.target.files);
   document.getElementById('file-count').textContent =
@@ -190,14 +220,6 @@ function appendLog(msg) {
   log.style.display = 'block';
   log.textContent += msg + '\n';
   log.scrollTop = log.scrollHeight;
-}
-
-async function getWorker() {
-  if (!worker) {
-    appendLog('Cargando motor OCR (puede tardar la primera vez)...');
-    worker = await Tesseract.createWorker('spa+eng');
-  }
-  return worker;
 }
 
 // ── Búsqueda por líneas cercanas (respaldo) ──────────────────────────────────
@@ -222,9 +244,7 @@ function buscarPorLineasCercanas(data) {
   return { pedido: null, confianza: 'ninguna' };
 }
 
-async function ocrFile(file) {
-  const w = await getWorker();
-
+async function ocrFile(file, w) {
   await w.setParameters({ tessedit_pageseg_mode: '3' });
   let { data } = await w.recognize(file);
   const r1 = findPedido(data.text);
@@ -245,10 +265,10 @@ async function ocrFile(file) {
 
   if (geminiHabilitado()) {
     try {
-      const rGemini = await callGemini(file, geminiApiKey());
+      const rGemini = await callGeminiLimitado(file, geminiApiKey());
       if (rGemini.confianza === 'gemini') return rGemini;
     } catch (err) {
-      appendLog(`  (Gemini no pudo con este archivo: ${err.message})`);
+      appendLog(`  (Gemini no pudo con ${file.name}: ${err.message})`);
     }
   }
 
@@ -262,19 +282,31 @@ async function procesarTodos() {
   document.getElementById('log').textContent = '';
   document.getElementById('resultados').innerHTML = '';
 
-  const detectados = [];
-  for (let i = 0; i < archivosSeleccionados.length; i++) {
-    const f = archivosSeleccionados[i];
-    appendLog(`[${i + 1}/${archivosSeleccionados.length}] Leyendo ${f.name}...`);
-    let resultado;
-    try {
-      resultado = await ocrFile(f);
-    } catch (err) {
-      resultado = { pedido: null, confianza: 'error' };
+  const pool = await getWorkerPool();
+  const archivos = archivosSeleccionados;
+  const detectados = new Array(archivos.length);
+  let siguiente = 0;
+  let completados = 0;
+
+  async function trabajador(w) {
+    while (siguiente < archivos.length) {
+      const i = siguiente++;
+      const f = archivos[i];
+      let resultado;
+      try {
+        resultado = await ocrFile(f, w);
+      } catch (err) {
+        resultado = { pedido: null, confianza: 'error' };
+      }
+      detectados[i] = { file: f, ...resultado };
+      completados++;
+      appendLog(`[${completados}/${archivos.length}] ${f.name} -> ${resultado.pedido || 'SIN IDENTIFICAR'} (${resultado.confianza})`);
     }
-    detectados.push({ file: f, ...resultado });
-    appendLog(`  -> ${resultado.pedido || 'SIN IDENTIFICAR'} (${resultado.confianza})`);
   }
+
+  // Todos los motores del pool arrancan a la vez y van tomando el siguiente
+  // archivo libre de la cola en cuanto terminan el suyo.
+  await Promise.all(pool.map(trabajador));
 
   const grupos = {};
   detectados.forEach(d => {
@@ -366,10 +398,6 @@ function descargarUno(i) {
   a.remove();
 }
 
-// Empaqueta todo en un solo .zip, organizado en dos carpetas adentro:
-// "renombrados/" con los que sí se identificaron, y "revisar/" con los que
-// no (con su nombre original intacto). Así solo tienes que abrir la carpeta
-// "revisar/" y completar esos a mano — el resto ya queda listo.
 async function descargarTodos() {
   const btn = document.getElementById('btn-descargar-todos');
   const identificados = window.__identificados || [];
