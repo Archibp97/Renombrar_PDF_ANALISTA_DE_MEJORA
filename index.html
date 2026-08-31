@@ -59,7 +59,12 @@ a.dl:hover{text-decoration:underline;}
     <div class="section-title" style="margin-top:0">🤖 Respaldo con IA (Gemini) — opcional</div>
     <div class="note" style="margin-bottom:12px;">
       Solo se usa para los archivos que Tesseract NO pudo leer solo (incluye manuscritos, que Tesseract
-      prácticamente no lee). 
+      prácticamente no lee). En el <strong>tier gratis</strong> de Gemini, Google puede usar las imágenes que
+      le mandes para mejorar sus productos — tus documentos tienen datos de clientes, tenlo en cuenta. Con
+      facturación activada en tu cuenta de Google (unos centavos por esto) ya no se usan para entrenar nada.
+      Tu clave se guarda solo en este navegador (nunca en ningún servidor mío ni de terceros) y solo se envía
+      a Google al hacer cada consulta. Consíguela gratis en
+      <a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com/apikey</a>.
     </div>
     <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:10px;">
       <input type="checkbox" id="usar-gemini" onchange="toggleGemini()"> Usar Gemini como respaldo
@@ -105,9 +110,6 @@ let archivosSeleccionados = [];
 let workerPool = [];
 let workerPoolListo = null;
 
-// Cuántos motores OCR corren en paralelo. Usamos los núcleos disponibles
-// menos 1 (para no trabar el resto del navegador), con un mínimo de 2 y un
-// tope de 6 (más que eso no ayuda mucho y consume mucha memoria).
 const NUM_WORKERS = Math.min(6, Math.max(2, (navigator.hardwareConcurrency || 4) - 1));
 
 async function getWorkerPool() {
@@ -124,9 +126,6 @@ async function getWorkerPool() {
 }
 
 // ── Config de Gemini ──────────────────────────────────────────────────────────
-// NOTA: Google retira modelos seguido. Si esto deja de funcionar (error 404),
-// entra a https://ai.google.dev/gemini-api/docs/models y cambia el nombre
-// aquí por el modelo Flash/Flash-Lite gratis vigente.
 const GEMINI_MODEL = 'gemini-3.5-flash';
 const GEMINI_PROMPT = `Esta imagen es un formulario de "Orden de producción" o "Pedido de venta" de una empresa de cortinas/persianas. Busca el número de pedido, que sigue el formato "NNN-COT-NNNNNN" (3 dígitos, guion, las letras COT, guion, 6 dígitos) o "NNN-CG-NNNNNNNN" (3 dígitos, guion, las letras CG, guion, 8 dígitos). El número puede estar impreso O ESCRITO A MANO, en cualquier parte de la imagen (a veces anotado a mano cerca de un borde).
 
@@ -165,9 +164,6 @@ async function callGemini(file, apiKey) {
         { inline_data: { mime_type: file.type || 'image/jpeg', data: base64 } }
       ]
     }],
-    // temperature: 0 = respuestas lo más consistentes posible entre llamadas.
-    // Sin esto, Gemini puede leer la MISMA imagen distinto en corridas
-    // distintas (es un modelo de IA, no un lector de caracteres exacto).
     generationConfig: { temperature: 0 }
   };
 
@@ -192,22 +188,35 @@ async function callGemini(file, apiKey) {
   return { pedido: null, confianza: 'ninguna' };
 }
 
-// Como ahora varios archivos se procesan a la vez (ver worker pool), varios
-// podrían querer llamar a Gemini al mismo tiempo. Esto limita a 2 llamadas
-// simultáneas para no disparar de golpe contra el límite por minuto gratis
-// de Gemini (10-15 RPM) — las demás esperan su turno en fila.
-let geminiEnVuelo = 0;
-const GEMINI_MAX_CONCURRENTE = 2;
+// Límite REAL de solicitudes por minuto a Gemini.
+const GEMINI_RPM_LIMIT = 8;
+let geminiTimestamps = [];
+let geminiExitos = 0;
+let geminiErrores = 0;
+
+async function esperarTurnoGemini() {
+  while (true) {
+    const ahora = Date.now();
+    geminiTimestamps = geminiTimestamps.filter(t => ahora - t < 60000);
+    if (geminiTimestamps.length < GEMINI_RPM_LIMIT) {
+      geminiTimestamps.push(ahora);
+      return;
+    }
+    const esperar = 60000 - (ahora - geminiTimestamps[0]) + 200;
+    appendLog(`  (esperando turno para Gemini, ${(esperar / 1000).toFixed(0)}s...)`);
+    await new Promise(r => setTimeout(r, esperar));
+  }
+}
 
 async function callGeminiLimitado(file, apiKey) {
-  while (geminiEnVuelo >= GEMINI_MAX_CONCURRENTE) {
-    await new Promise(r => setTimeout(r, 250));
-  }
-  geminiEnVuelo++;
+  await esperarTurnoGemini();
   try {
-    return await callGemini(file, apiKey);
-  } finally {
-    geminiEnVuelo--;
+    const resultado = await callGemini(file, apiKey);
+    geminiExitos++;
+    return resultado;
+  } catch (err) {
+    geminiErrores++;
+    throw err;
   }
 }
 
@@ -247,7 +256,10 @@ function buscarPorLineasCercanas(data) {
   return { pedido: null, confianza: 'ninguna' };
 }
 
-async function ocrFile(file, w) {
+// FASE 1: solo Tesseract (3 modos de lectura + búsqueda por líneas). Esto es
+// lo que corre en paralelo entre todos los workers del pool — es rápido y no
+// tiene límite de cuota, así que no hay razón para frenarlo.
+async function ocrFileTesseract(file, w) {
   await w.setParameters({ tessedit_pageseg_mode: '3' });
   let { data } = await w.recognize(file);
   const r1 = findPedido(data.text);
@@ -264,18 +276,7 @@ async function ocrFile(file, w) {
   if (r3.confianza === 'alta') return r3;
 
   const rLineas = buscarPorLineasCercanas(data);
-  const mejorTesseract = [r1, r2, r3, rLineas].find(c => c.confianza === 'parcial') || { pedido: null, confianza: 'ninguna' };
-
-  if (geminiHabilitado()) {
-    try {
-      const rGemini = await callGeminiLimitado(file, geminiApiKey());
-      if (rGemini.confianza === 'gemini') return rGemini;
-    } catch (err) {
-      appendLog(`  (Gemini no pudo con ${file.name}: ${err.message})`);
-    }
-  }
-
-  return mejorTesseract;
+  return [r1, r2, r3, rLineas].find(c => c.confianza === 'parcial') || { pedido: null, confianza: 'ninguna' };
 }
 
 async function procesarTodos() {
@@ -284,7 +285,11 @@ async function procesarTodos() {
   btn.textContent = 'Procesando...';
   document.getElementById('log').textContent = '';
   document.getElementById('resultados').innerHTML = '';
+  geminiExitos = 0;
+  geminiErrores = 0;
+  geminiTimestamps = [];
 
+  // ── FASE 1: Tesseract, todos los archivos, en paralelo ──────────────────
   const pool = await getWorkerPool();
   const archivos = archivosSeleccionados;
   const detectados = new Array(archivos.length);
@@ -297,22 +302,40 @@ async function procesarTodos() {
       const f = archivos[i];
       let resultado;
       try {
-        resultado = await ocrFile(f, w);
+        resultado = await ocrFileTesseract(f, w);
       } catch (err) {
         resultado = { pedido: null, confianza: 'error' };
       }
       detectados[i] = { file: f, ...resultado };
       completados++;
-      appendLog(`[${completados}/${archivos.length}] ${f.name} -> ${resultado.pedido || 'SIN IDENTIFICAR'} (${resultado.confianza})`);
+      appendLog(`[Tesseract ${completados}/${archivos.length}] ${f.name} -> ${resultado.pedido || 'SIN IDENTIFICAR'} (${resultado.confianza})`);
+    }
+  }
+  await Promise.all(pool.map(trabajador));
+
+  // ── FASE 2: Gemini, solo para lo que Tesseract no resolvió, UNO POR UNO ──
+  // Más lento a propósito: así el límite de velocidad de Gemini es fácil de
+  // respetar (no hay varios workers pidiéndole cosas al mismo tiempo).
+  if (geminiHabilitado()) {
+    const pendientes = detectados.filter(d => d.confianza !== 'alta');
+    if (pendientes.length > 0) {
+      appendLog(`\nFase 2: consultando Gemini para ${pendientes.length} archivo(s) que Tesseract no pudo leer...`);
+      for (let i = 0; i < pendientes.length; i++) {
+        const d = pendientes[i];
+        try {
+          const rGemini = await callGeminiLimitado(d.file, geminiApiKey());
+          if (rGemini.confianza === 'gemini') {
+            d.pedido = rGemini.pedido;
+            d.confianza = rGemini.confianza;
+          }
+          appendLog(`[Gemini ${i + 1}/${pendientes.length}] ${d.file.name} -> ${d.pedido || 'sigue sin identificar'}`);
+        } catch (err) {
+          appendLog(`[Gemini ${i + 1}/${pendientes.length}] ${d.file.name} -> error: ${err.message}`);
+        }
+      }
     }
   }
 
-  // Todos los motores del pool arrancan a la vez y van tomando el siguiente
-  // archivo libre de la cola en cuanto terminan el suyo.
-  await Promise.all(pool.map(trabajador));
-
-  // Agrupar los de confianza alta (OCR directo) Y los de Gemini, para
-  // detectar pedidos repetidos y numerarlos con sufijo si hace falta.
   const grupos = {};
   detectados.forEach(d => {
     if (d.confianza === 'alta' || d.confianza === 'gemini') {
@@ -333,6 +356,11 @@ async function procesarTodos() {
   const revisar = detectados.filter(d => d.confianza !== 'alta' && d.confianza !== 'gemini');
 
   renderResultados(identificados, revisar);
+
+  if (geminiHabilitado() && (geminiExitos + geminiErrores) > 0) {
+    appendLog(`\nGemini: ${geminiExitos} llamada(s) exitosa(s), ${geminiErrores} con error (límite alcanzado u otro problema).`);
+  }
+
   btn.disabled = false;
   btn.textContent = 'Procesar imágenes';
 }
@@ -389,7 +417,7 @@ function renderResultados(identificados, revisar) {
   html += `</div>`;
 
   cont.innerHTML = html;
-  window.__identificados = identificados; // guardado en memoria para las descargas
+  window.__identificados = identificados;
   window.__revisar = revisar;
 }
 
@@ -403,10 +431,6 @@ function descargarUno(i) {
   a.remove();
 }
 
-// Empaqueta todo en un solo .zip, organizado en dos carpetas adentro:
-// "renombrados/" con los que sí se identificaron, y "revisar/" con los que
-// no (con su nombre original intacto). Así solo tienes que abrir la carpeta
-// "revisar/" y completar esos a mano — el resto ya queda listo.
 async function descargarTodos() {
   const btn = document.getElementById('btn-descargar-todos');
   const identificados = window.__identificados || [];
