@@ -59,7 +59,12 @@ a.dl:hover{text-decoration:underline;}
     <div class="section-title" style="margin-top:0">🤖 Respaldo con IA (Gemini) — opcional</div>
     <div class="note" style="margin-bottom:12px;">
       Solo se usa para los archivos que Tesseract NO pudo leer solo (incluye manuscritos, que Tesseract
-      prácticamente no lee). 
+      prácticamente no lee). En el <strong>tier gratis</strong> de Gemini, Google puede usar las imágenes que
+      le mandes para mejorar sus productos — tus documentos tienen datos de clientes, tenlo en cuenta. Con
+      facturación activada en tu cuenta de Google (unos centavos por esto) ya no se usan para entrenar nada.
+      Tu clave se guarda solo en este navegador (nunca en ningún servidor mío ni de terceros) y solo se envía
+      a Google al hacer cada consulta. Consíguela gratis en
+      <a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com/apikey</a>.
     </div>
     <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:10px;">
       <input type="checkbox" id="usar-gemini" onchange="toggleGemini()"> Usar Gemini como respaldo
@@ -83,10 +88,6 @@ a.dl:hover{text-decoration:underline;}
 </div>
 
 <script>
-// ── Patrones para detectar el número de pedido ───────────────────────────────
-// Se exige el largo EXACTO de dígitos por tipo (COT: 6, CG: 8) para que un
-// error de OCR que se coma un dígito (ej. 628548 -> 62854) NO genere un
-// renombrado "seguro" con el número equivocado — cae a revisión manual.
 const COT_FULL = /(\d{3})\s*-\s*(COT)\s*-\s*(\d{6})(?!\d)/i;
 const CG_FULL = /(\d{3})\s*-\s*(CG)\s*-\s*(\d{8})(?!\d)/i;
 const COT_PARTIAL = /\bCOT\s*-\s*(\d{6})(?!\d)/i;
@@ -105,12 +106,33 @@ function findPedido(text) {
 }
 
 let archivosSeleccionados = [];
-let worker = null;
+let workerPool = [];
+let workerPoolListo = null;
 
-// ── Config de Gemini ──────────────────────────────────────────────────────────
-// NOTA: Google retira modelos seguido. Si esto deja de funcionar (error 404),
-// entra a https://ai.google.dev/gemini-api/docs/models y cambia el nombre
-// aquí por el modelo Flash/Flash-Lite gratis vigente.
+const NUM_WORKERS = Math.min(4, Math.max(2, (navigator.hardwareConcurrency || 4) - 1));
+
+async function getWorkerPool() {
+  if (!workerPoolListo) {
+    workerPoolListo = (async () => {
+      appendLog(`Cargando ${NUM_WORKERS} motores OCR en paralelo (usa varios núcleos de tu PC)...`);
+      const resultados = await Promise.allSettled(
+        Array.from({ length: NUM_WORKERS }, () => Tesseract.createWorker('spa+eng'))
+      );
+      workerPool = resultados.filter(r => r.status === 'fulfilled').map(r => r.value);
+      const fallidos = resultados.filter(r => r.status === 'rejected');
+      if (fallidos.length) {
+        appendLog(`Aviso: ${fallidos.length} motor(es) no cargaron (problema de red al descargarlos). Seguimos con los ${workerPool.length} que sí cargaron.`);
+      }
+      if (workerPool.length === 0) {
+        workerPoolListo = null;
+        throw new Error('No se pudo cargar ningún motor OCR. Revisa tu conexión a internet e intenta de nuevo.');
+      }
+    })();
+  }
+  await workerPoolListo;
+  return workerPool;
+}
+
 const GEMINI_MODEL = 'gemini-3.5-flash';
 const GEMINI_PROMPT = `Esta imagen es un formulario de "Orden de producción" o "Pedido de venta" de una empresa de cortinas/persianas. Busca el número de pedido, que sigue el formato "NNN-COT-NNNNNN" (3 dígitos, guion, las letras COT, guion, 6 dígitos) o "NNN-CG-NNNNNNNN" (3 dígitos, guion, las letras CG, guion, 8 dígitos). El número puede estar impreso O ESCRITO A MANO, en cualquier parte de la imagen (a veces anotado a mano cerca de un borde).
 
@@ -139,12 +161,6 @@ function fileToBase64(file) {
   });
 }
 
-// Le pregunta a Gemini directamente por el número de pedido. A diferencia de
-// Tesseract, esto SÍ puede leer texto manuscrito razonablemente bien — pero
-// sigue siendo una IA "adivinando" a partir de una imagen, no un lector de
-// caracteres exacto, así que sus resultados se marcan con su propia etiqueta
-// ('gemini') para distinguirlos de una lectura OCR directa, y en la tabla se
-// muestran con una nota de "verificar".
 async function callGemini(file, apiKey) {
   const base64 = await fileToBase64(file);
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
@@ -154,7 +170,8 @@ async function callGemini(file, apiKey) {
         { text: GEMINI_PROMPT },
         { inline_data: { mime_type: file.type || 'image/jpeg', data: base64 } }
       ]
-    }]
+    }],
+    generationConfig: { temperature: 0 }
   };
 
   const res = await fetch(url, {
@@ -178,6 +195,37 @@ async function callGemini(file, apiKey) {
   return { pedido: null, confianza: 'ninguna' };
 }
 
+const GEMINI_RPM_LIMIT = 8;
+let geminiTimestamps = [];
+let geminiExitos = 0;
+let geminiErrores = 0;
+
+async function esperarTurnoGemini() {
+  while (true) {
+    const ahora = Date.now();
+    geminiTimestamps = geminiTimestamps.filter(t => ahora - t < 60000);
+    if (geminiTimestamps.length < GEMINI_RPM_LIMIT) {
+      geminiTimestamps.push(ahora);
+      return;
+    }
+    const esperar = 60000 - (ahora - geminiTimestamps[0]) + 200;
+    appendLog(`  (esperando turno para Gemini, ${(esperar / 1000).toFixed(0)}s...)`);
+    await new Promise(r => setTimeout(r, esperar));
+  }
+}
+
+async function callGeminiLimitado(file, apiKey) {
+  await esperarTurnoGemini();
+  try {
+    const resultado = await callGemini(file, apiKey);
+    geminiExitos++;
+    return resultado;
+  } catch (err) {
+    geminiErrores++;
+    throw err;
+  }
+}
+
 function onFilesSelected(e) {
   archivosSeleccionados = Array.from(e.target.files);
   document.getElementById('file-count').textContent =
@@ -192,15 +240,6 @@ function appendLog(msg) {
   log.scrollTop = log.scrollHeight;
 }
 
-async function getWorker() {
-  if (!worker) {
-    appendLog('Cargando motor OCR (puede tardar la primera vez)...');
-    worker = await Tesseract.createWorker('spa+eng');
-  }
-  return worker;
-}
-
-// ── Búsqueda por líneas cercanas (respaldo) ──────────────────────────────────
 function buscarPorLineasCercanas(data) {
   if (!data.lines) return { pedido: null, confianza: 'ninguna' };
   const lineas = data.lines.map(l => l.words.map(w => w.text).filter(Boolean));
@@ -222,37 +261,51 @@ function buscarPorLineasCercanas(data) {
   return { pedido: null, confianza: 'ninguna' };
 }
 
-async function ocrFile(file) {
-  const w = await getWorker();
+async function prepararImagen(file, maxDim = 2200) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const { width, height } = img;
+      if (Math.max(width, height) <= maxDim) {
+        URL.revokeObjectURL(url);
+        resolve(file);
+        return;
+      }
+      const escala = maxDim / Math.max(width, height);
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(width * escala);
+      canvas.height = Math.round(height * escala);
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(url);
+      canvas.toBlob(blob => resolve(blob || file), 'image/jpeg', 0.9);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+    img.src = url;
+  });
+}
+
+async function ocrFileTesseract(file, w) {
+  const imagen = await prepararImagen(file);
 
   await w.setParameters({ tessedit_pageseg_mode: '3' });
-  let { data } = await w.recognize(file);
+  let { data } = await w.recognize(imagen);
   const r1 = findPedido(data.text);
   if (r1.confianza === 'alta') return r1;
 
   await w.setParameters({ tessedit_pageseg_mode: '4' });
-  ({ data } = await w.recognize(file));
+  ({ data } = await w.recognize(imagen));
   const r2 = findPedido(data.text);
   if (r2.confianza === 'alta') return r2;
 
   await w.setParameters({ tessedit_pageseg_mode: '6' });
-  ({ data } = await w.recognize(file));
+  ({ data } = await w.recognize(imagen));
   const r3 = findPedido(data.text);
   if (r3.confianza === 'alta') return r3;
 
   const rLineas = buscarPorLineasCercanas(data);
-  const mejorTesseract = [r1, r2, r3, rLineas].find(c => c.confianza === 'parcial') || { pedido: null, confianza: 'ninguna' };
-
-  if (geminiHabilitado()) {
-    try {
-      const rGemini = await callGemini(file, geminiApiKey());
-      if (rGemini.confianza === 'gemini') return rGemini;
-    } catch (err) {
-      appendLog(`  (Gemini no pudo con este archivo: ${err.message})`);
-    }
-  }
-
-  return mejorTesseract;
+  return [r1, r2, r3, rLineas].find(c => c.confianza === 'parcial') || { pedido: null, confianza: 'ninguna' };
 }
 
 async function procesarTodos() {
@@ -261,19 +314,63 @@ async function procesarTodos() {
   btn.textContent = 'Procesando...';
   document.getElementById('log').textContent = '';
   document.getElementById('resultados').innerHTML = '';
+  geminiExitos = 0;
+  geminiErrores = 0;
+  geminiTimestamps = [];
 
-  const detectados = [];
-  for (let i = 0; i < archivosSeleccionados.length; i++) {
-    const f = archivosSeleccionados[i];
-    appendLog(`[${i + 1}/${archivosSeleccionados.length}] Leyendo ${f.name}...`);
-    let resultado;
-    try {
-      resultado = await ocrFile(f);
-    } catch (err) {
-      resultado = { pedido: null, confianza: 'error' };
+  const archivos = archivosSeleccionados;
+  const detectados = new Array(archivos.length);
+
+  try {
+    const pool = await getWorkerPool();
+    let siguiente = 0;
+    let completados = 0;
+
+    async function trabajador(w) {
+      while (siguiente < archivos.length) {
+        const i = siguiente++;
+        const f = archivos[i];
+        let resultado;
+        try {
+          resultado = await ocrFileTesseract(f, w);
+        } catch (err) {
+          resultado = { pedido: null, confianza: 'error' };
+        }
+        detectados[i] = { file: f, ...resultado };
+        completados++;
+        appendLog(`[Tesseract ${completados}/${archivos.length}] ${f.name} -> ${resultado.pedido || 'SIN IDENTIFICAR'} (${resultado.confianza})`);
+      }
     }
-    detectados.push({ file: f, ...resultado });
-    appendLog(`  -> ${resultado.pedido || 'SIN IDENTIFICAR'} (${resultado.confianza})`);
+    await Promise.all(pool.map(trabajador));
+
+    if (geminiHabilitado()) {
+      const pendientes = detectados.filter(d => d && d.confianza !== 'alta');
+      if (pendientes.length > 0) {
+        appendLog(`\nFase 2: consultando Gemini para ${pendientes.length} archivo(s) que Tesseract no pudo leer...`);
+        for (let i = 0; i < pendientes.length; i++) {
+          const d = pendientes[i];
+          try {
+            const rGemini = await callGeminiLimitado(d.file, geminiApiKey());
+            if (rGemini.confianza === 'gemini') {
+              d.pedido = rGemini.pedido;
+              d.confianza = rGemini.confianza;
+            }
+            appendLog(`[Gemini ${i + 1}/${pendientes.length}] ${d.file.name} -> ${d.pedido || 'sigue sin identificar'}`);
+          } catch (err) {
+            appendLog(`[Gemini ${i + 1}/${pendientes.length}] ${d.file.name} -> error: ${err.message}`);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    appendLog(`\n⚠️ Se detuvo por un error inesperado: ${err.message}`);
+    appendLog('Sugerencia: probá con menos imágenes por tanda (ej. 10-15), o recargá la página e intentá de nuevo.');
+  }
+
+  for (let i = 0; i < archivos.length; i++) {
+    if (!detectados[i]) {
+      detectados[i] = { file: archivos[i], pedido: null, confianza: 'error' };
+    }
   }
 
   const grupos = {};
@@ -296,6 +393,11 @@ async function procesarTodos() {
   const revisar = detectados.filter(d => d.confianza !== 'alta' && d.confianza !== 'gemini');
 
   renderResultados(identificados, revisar);
+
+  if (geminiHabilitado() && (geminiExitos + geminiErrores) > 0) {
+    appendLog(`\nGemini: ${geminiExitos} llamada(s) exitosa(s), ${geminiErrores} con error (límite alcanzado u otro problema).`);
+  }
+
   btn.disabled = false;
   btn.textContent = 'Procesar imágenes';
 }
@@ -366,10 +468,6 @@ function descargarUno(i) {
   a.remove();
 }
 
-// Empaqueta todo en un solo .zip, organizado en dos carpetas adentro:
-// "renombrados/" con los que sí se identificaron, y "revisar/" con los que
-// no (con su nombre original intacto). Así solo tienes que abrir la carpeta
-// "revisar/" y completar esos a mano — el resto ya queda listo.
 async function descargarTodos() {
   const btn = document.getElementById('btn-descargar-todos');
   const identificados = window.__identificados || [];
@@ -399,7 +497,6 @@ async function descargarTodos() {
   btn.textContent = 'Descargar todo (.zip, organizado en carpetas)';
 }
 
-// Arrastrar y soltar
 const dz = document.getElementById('drop-zone');
 dz.addEventListener('dragover', e => { e.preventDefault(); dz.style.borderColor = 'var(--green)'; });
 dz.addEventListener('dragleave', () => { dz.style.borderColor = ''; });
@@ -412,7 +509,6 @@ dz.addEventListener('drop', e => {
   document.getElementById('btn-procesar').disabled = archivosSeleccionados.length === 0;
 });
 
-// Recuperar la config de Gemini guardada en este navegador (si la había)
 (function initGemini() {
   const key = localStorage.getItem('gemini_api_key') || '';
   const activo = localStorage.getItem('usar_gemini') === '1';
