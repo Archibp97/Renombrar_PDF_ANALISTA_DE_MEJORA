@@ -75,10 +75,9 @@ a.dl:hover{text-decoration:underline;}
     <hr style="border:none;border-top:0.5px solid var(--border);margin:14px 0;">
 
     <div class="note" style="margin-bottom:12px;">
-      <strong>Segundo respaldo (opcional):</strong> OpenRouter con Qwen2.5-VL, gratis, con cuota
-      independiente de Gemini. Solo entra en juego si Gemini también falla o se queda sin cuota.
-      Consigue tu key en <a href="https://openrouter.ai/keys" target="_blank">openrouter.ai/keys</a> —
-      elige un modelo que termine en <code>:free</code> para no necesitar cargar saldo.
+      <strong>Segundo respaldo (opcional):</strong> OpenRouter, gratis, con cuota independiente de
+      Gemini. Solo entra en juego si Gemini también falla o se queda sin cuota. Consigue tu key en
+      <a href="https://openrouter.ai/keys" target="_blank">openrouter.ai/keys</a>.
     </div>
     <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:10px;">
       <input type="checkbox" id="usar-openrouter" onchange="toggleOpenRouter()"> Usar OpenRouter como segundo respaldo
@@ -240,7 +239,6 @@ async function callGeminiLimitado(file, apiKey) {
   }
 }
 
-// ── OpenRouter (segundo respaldo, opcional) ──────────────────────────────────
 const OPENROUTER_MODEL = 'openrouter/free';
 
 function toggleOpenRouter() {
@@ -524,10 +522,19 @@ async function procesarTodos() {
     }
   }
 
+  detectados.forEach(d => {
+    if (d.confianza === 'parcial' && !d.motivo && /^\?\?\?-(COT|CG)-\d+$/.test(d.pedido || '')) {
+      d.confianza = 'parcial-sin-prefijo';
+      d.pedidoCorto = d.pedido.replace('???-', '');
+    }
+  });
+
   const grupos = {};
   detectados.forEach(d => {
     if (d.confianza === 'alta' || d.confianza === 'gemini' || d.confianza === 'openrouter') {
       (grupos[d.pedido] = grupos[d.pedido] || []).push(d);
+    } else if (d.confianza === 'parcial-sin-prefijo') {
+      (grupos[d.pedidoCorto] = grupos[d.pedidoCorto] || []).push(d);
     }
   });
 
@@ -541,7 +548,9 @@ async function procesarTodos() {
     });
   });
 
-  const revisar = detectados.filter(d => d.confianza !== 'alta' && d.confianza !== 'gemini' && d.confianza !== 'openrouter');
+  const revisar = detectados.filter(d =>
+    d.confianza !== 'alta' && d.confianza !== 'gemini' && d.confianza !== 'openrouter' && d.confianza !== 'parcial-sin-prefijo'
+  );
 
   renderResultados(identificados, revisar);
 
@@ -582,7 +591,9 @@ function renderResultados(identificados, revisar) {
       const fuente = d.confianza === 'gemini'
         ? `<span class="badge parcial" title="Leído por Gemini — revisa antes de confiar del todo">IA: Gemini (verificar)</span>`
         : d.confianza === 'openrouter'
-        ? `<span class="badge parcial" title="Leído por OpenRouter/Qwen — revisa antes de confiar del todo">IA: OpenRouter (verificar)</span>`
+        ? `<span class="badge parcial" title="Leído por OpenRouter — revisa antes de confiar del todo">IA: OpenRouter (verificar)</span>`
+        : d.confianza === 'parcial-sin-prefijo'
+        ? `<span class="badge parcial" title="El patrón calzó y los dígitos tienen buena confianza, pero no se encontró el prefijo de 3 dígitos">OCR (sin prefijo)</span>`
         : `<span class="badge alta">OCR</span>`;
       html += `<tr><td>${d.file.name}</td><td><strong>${d.nuevoNombre}</strong></td><td>${fuente}</td>` +
               `<td><a class="dl" href="#" onclick="descargarUno(${i});return false;">Descargar</a></td></tr>`;
