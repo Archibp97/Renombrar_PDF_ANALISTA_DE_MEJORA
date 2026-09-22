@@ -7,66 +7,141 @@
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <style>
-:root{--bg:#fff;--bg2:#f5f5f4;--bg3:#efefed;--text:#1c1c1a;--text2:#6b6b67;--text3:#9b9b96;--border:rgba(0,0,0,0.12);--green:#1D9E75;--gl:#E1F5EE;--gt:#085041;--blue:#378ADD;--bl:#E6F1FB;--bt:#0C447C;--amber:#BA7517;--al:#FAEEDA;--at:#633806;--r:10px;--rs:6px;}
+:root{
+  --bg:#F6F6F4; --surface:#FFFFFF;
+  --ink:#16171B; --ink-2:#5A5D66; --ink-3:#9598A1;
+  --line:rgba(22,23,27,0.10); --line-strong:rgba(22,23,27,0.20);
+  --accent:#1F4E79; --accent-hover:#173D60; --accent-tint:#E7EEF5;
+  --success:#1E7C5A; --success-tint:#E3F3EC;
+  --warn:#A6631B; --warn-tint:#FBF1E0;
+  --mono-bg:#14161B; --mono-text:#C6D0E0; --mono-text-2:#767F91;
+  --font-sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+  --font-mono:ui-monospace,"SFMono-Regular","Consolas","Menlo",monospace;
+  --r-sm:4px; --r-md:3px;
+}
 *{box-sizing:border-box;margin:0;padding:0;}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg3);color:var(--text);font-size:14px;line-height:1.5;}
-.wrap{max-width:960px;margin:0 auto;padding:24px 20px 60px;}
-h1{font-size:18px;font-weight:600;margin-bottom:4px;}
-.subtitle{font-size:13px;color:var(--text2);margin-bottom:18px;}
-.card{background:var(--bg);border:0.5px solid var(--border);border-radius:var(--r);padding:18px 20px;margin-bottom:16px;}
-.note{background:var(--bl);color:var(--bt);border-radius:var(--rs);padding:12px 14px;font-size:12.5px;margin-bottom:16px;line-height:1.5;}
-.note strong{font-weight:600;}
-.upload-zone{border:1.5px dashed var(--border);border-radius:var(--rs);padding:24px;text-align:center;cursor:pointer;transition:border-color .2s,background .2s;}
-.upload-zone:hover{border-color:var(--green);background:var(--gl);}
+body{font-family:var(--font-sans);background:var(--bg);color:var(--ink);font-size:14px;line-height:1.55;}
+
+header.topbar{background:var(--surface);border-bottom:1px solid var(--line);}
+.topbar-inner{max-width:860px;margin:0 auto;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;gap:16px;}
+.brand{display:flex;align-items:center;gap:10px;}
+.brand-mark{width:26px;height:20px;display:flex;flex-direction:column;justify-content:space-between;flex-shrink:0;}
+.brand-mark span{display:block;height:3px;background:var(--accent);border-radius:1px;}
+.brand-mark span:nth-child(1){width:100%;}
+.brand-mark span:nth-child(2){width:78%;}
+.brand-mark span:nth-child(3){width:56%;}
+.brand-text h1{font-size:15px;font-weight:600;letter-spacing:-0.01em;}
+.brand-text .tagline{font-size:12px;color:var(--ink-3);margin-top:1px;}
+.env-tag{font-size:11.5px;color:var(--ink-2);border:1px solid var(--line-strong);border-radius:var(--r-sm);padding:3px 9px;white-space:nowrap;}
+
+.wrap{max-width:860px;margin:0 auto;padding:28px 20px 48px;}
+
+.intro{font-size:13.5px;color:var(--ink-2);max-width:62ch;margin-bottom:22px;}
+
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:0;padding:20px 22px;margin-bottom:20px;}
+
+.note{border-left:2px solid var(--accent);background:var(--accent-tint);padding:12px 16px;font-size:12.5px;color:var(--ink-2);margin-bottom:20px;line-height:1.6;}
+.note strong{font-weight:600;color:var(--ink);}
+.note code{font-family:var(--font-mono);font-size:11.5px;background:rgba(22,23,27,0.06);padding:1px 5px;border-radius:3px;}
+
+.upload-zone{position:relative;border:1px dashed var(--line-strong);padding:34px 24px;text-align:center;cursor:pointer;transition:border-color .15s,background-color .15s;}
+.upload-zone:hover{border-color:var(--accent);background:var(--accent-tint);}
 .upload-zone input[type=file]{display:none;}
-.upload-label{font-size:13px;color:var(--text2);}
-.upload-label strong{color:var(--green);}
-#file-count{font-size:12px;color:var(--text2);margin-top:8px;}
-button{cursor:pointer;font-family:inherit;font-size:13px;border-radius:var(--rs);border:0.5px solid var(--border);background:var(--bg);color:var(--text);padding:9px 16px;}
-button:disabled{opacity:0.5;cursor:not-allowed;}
-.btn-green{background:var(--green);color:#fff;border-color:transparent;font-weight:600;width:100%;padding:11px;font-size:14px;margin-top:12px;}
-.btn-green:hover:not(:disabled){background:#178a64;}
-.btn-sm{font-size:12px;padding:5px 12px;}
-#log{font-family:'Consolas',monospace;font-size:11.5px;background:var(--bg2);border-radius:var(--rs);padding:10px 12px;max-height:180px;overflow-y:auto;white-space:pre-wrap;margin-top:12px;color:var(--text2);display:none;}
-table{width:100%;border-collapse:collapse;font-size:13px;margin-top:10px;}
-th,td{text-align:left;padding:8px 10px;border-bottom:0.5px solid var(--border);}
-th{font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text3);font-weight:600;}
-.badge{font-size:11px;font-weight:600;padding:2px 9px;border-radius:99px;display:inline-block;}
-.badge.alta{background:var(--gl);color:var(--gt);}
-.badge.parcial{background:var(--al);color:var(--at);}
-.badge.ninguna{background:var(--bg3);color:var(--text3);}
-.section-title{font-size:13px;font-weight:600;margin:18px 0 6px;}
-.empty{color:var(--text3);font-size:13px;padding:10px 0;}
-a.dl{color:var(--blue);font-weight:600;text-decoration:none;font-size:12.5px;}
+.corner{position:absolute;width:12px;height:12px;border:2px solid var(--line-strong);}
+.upload-zone:hover .corner{border-color:var(--accent);}
+.corner.tl{top:6px;left:6px;border-right:none;border-bottom:none;}
+.corner.tr{top:6px;right:6px;border-left:none;border-bottom:none;}
+.corner.bl{bottom:6px;left:6px;border-right:none;border-top:none;}
+.corner.br{bottom:6px;right:6px;border-left:none;border-top:none;}
+.upload-icon{margin:0 auto 10px;width:28px;height:28px;color:var(--ink-3);}
+.upload-zone:hover .upload-icon{color:var(--accent);}
+.upload-label{font-size:13px;color:var(--ink-2);}
+.upload-label strong{color:var(--accent);font-weight:600;}
+#file-count{font-size:12px;color:var(--ink-2);margin-top:10px;}
+
+button{cursor:pointer;font-family:inherit;font-size:13px;border-radius:var(--r-sm);border:1px solid var(--line-strong);background:var(--surface);color:var(--ink);padding:9px 16px;transition:background-color .15s,border-color .15s;}
+button:disabled{opacity:0.45;cursor:not-allowed;}
+.btn-green{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600;width:100%;padding:11px;font-size:13.5px;margin-top:14px;}
+.btn-green:hover:not(:disabled){background:var(--accent-hover);border-color:var(--accent-hover);}
+
+#log{font-family:var(--font-mono);font-size:11.5px;background:var(--mono-bg);color:var(--mono-text);border-radius:var(--r-sm);padding:12px 14px;max-height:190px;overflow-y:auto;white-space:pre-wrap;margin-top:14px;display:none;}
+.log-label{font-size:11px;color:var(--ink-3);margin-top:14px;display:none;}
+.log-label.visible{display:block;}
+
+table{width:100%;border-collapse:collapse;font-size:13px;margin-top:12px;}
+th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);}
+th{font-size:12px;color:var(--ink-2);font-weight:600;}
+tbody tr{transition:background-color .1s;}
+tbody tr:hover{background:var(--bg);}
+td strong{font-family:var(--font-mono);font-weight:600;font-size:12.5px;}
+
+.badge{font-size:11px;font-weight:600;padding:2px 8px;border-radius:var(--r-md);display:inline-block;}
+.badge.alta{background:var(--success-tint);color:var(--success);}
+.badge.parcial{background:var(--warn-tint);color:var(--warn);}
+.badge.ninguna{background:var(--bg);color:var(--ink-3);}
+
+.section-title{font-size:13.5px;font-weight:600;margin:0 0 4px;padding-bottom:10px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:7px;}
+.section-title .dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;}
+.section-title.ok .dot{background:var(--success);}
+.section-title.warn .dot{background:var(--warn);}
+.section-title .count{color:var(--ink-3);font-weight:500;}
+
+.empty{color:var(--ink-3);font-size:13px;padding:14px 0 2px;}
+a.dl{color:var(--accent);font-weight:600;text-decoration:none;font-size:12.5px;}
 a.dl:hover{text-decoration:underline;}
+
+.zip-note{font-size:12px;color:var(--ink-2);margin-top:10px;line-height:1.6;}
+.zip-note strong{color:var(--ink);font-family:var(--font-mono);font-weight:600;}
+
+footer.foot{max-width:860px;margin:0 auto;padding:0 20px 40px;font-size:11.5px;color:var(--ink-3);}
 </style>
 </head>
 <body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <div class="brand-mark"><span></span><span></span><span></span></div>
+      <div class="brand-text">
+        <h1>Renombrador de Pedidos</h1>
+        <div class="tagline">Lectura OCR de órdenes de producción</div>
+      </div>
+    </div>
+    <div class="env-tag">Procesamiento local</div>
+  </div>
+</header>
+
 <div class="wrap">
-  <h1>Renombrador de Pedidos (OCR)</h1>
-  <div class="subtitle">Sube tus escaneos y se renombran solos según el número de pedido detectado.</div>
+  <div class="intro">Sube tus escaneos y se renombran solos según el número de pedido detectado en cada imagen.</div>
 
   <div class="note">
-    <strong>Cómo funciona:</strong> el programa lee cada imagen con OCR buscando un patrón tipo
+    <strong>Cómo funciona.</strong> El programa lee cada imagen con OCR buscando un patrón tipo
     <code>024-COT-610115</code> o <code>016-CG-00002465</code>. Si lo encuentra con seguridad, te da el archivo
     ya renombrado para descargar. Si no está seguro (tablas muy anchas, números escritos a mano, escaneos
-    borrosos), el archivo queda en <strong>"Para revisar"</strong> sin tocar — nunca inventa un nombre.
-    Todo corre en tu navegador; las imágenes no se suben a ningún servidor.
+    borrosos), el archivo queda en "Para revisar" sin tocar — nunca inventa un nombre. Todo corre en tu
+    navegador; las imágenes no se suben a ningún servidor.
   </div>
 
-  <div class="card">
+  <div class="panel">
     <div class="upload-zone" id="drop-zone" onclick="document.getElementById('file-input').click()">
+      <span class="corner tl"></span><span class="corner tr"></span>
+      <span class="corner bl"></span><span class="corner br"></span>
       <input type="file" id="file-input" multiple accept="image/*" onchange="onFilesSelected(event)">
-      <div style="font-size:26px;margin-bottom:6px;">📂</div>
+      <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M12 4v11m0-11 4 4m-4-4-4 4" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
       <div class="upload-label"><strong>Elegí las imágenes</strong> o arrastralas aquí</div>
       <div id="file-count"></div>
     </div>
     <button class="btn-green" id="btn-procesar" onclick="procesarTodos()" disabled>Procesar imágenes</button>
+    <div class="log-label" id="log-label">Registro de proceso</div>
     <div id="log"></div>
   </div>
 
   <div id="resultados"></div>
 </div>
+
+<footer class="foot">Herramienta interna — ningún archivo sale de este equipo durante el procesamiento.</footer>
 
 <script>
 const COT_FULL = /(\d{3})\s*-\s*(COT)\s*-\s*(\d{6})(?!\d)/i;
@@ -124,6 +199,7 @@ function onFilesSelected(e) {
 function appendLog(msg) {
   const log = document.getElementById('log');
   log.style.display = 'block';
+  document.getElementById('log-label').classList.add('visible');
   log.textContent += msg + '\n';
   log.scrollTop = log.scrollHeight;
 }
@@ -305,11 +381,11 @@ function renderResultados(identificados, revisar) {
 
   const totalParaDescargar = identificados.length + revisar.length;
   if (totalParaDescargar > 0) {
-    html += `<div class="card">
+    html += `<div class="panel">
       <button class="btn-green" id="btn-descargar-todos" onclick="descargarTodos()">
         Descargar todo (.zip, organizado en carpetas)
       </button>
-      <div style="font-size:12px;color:var(--text2);margin-top:8px;">
+      <div class="zip-note">
         Adentro vas a encontrar dos carpetas: <strong>renombrados/</strong> (${identificados.length} archivo(s),
         listos para usar) y <strong>revisar/</strong> (${revisar.length} archivo(s) con su nombre original, para
         que completes solo esos a mano).
@@ -317,8 +393,8 @@ function renderResultados(identificados, revisar) {
     </div>`;
   }
 
-  html += `<div class="card">`;
-  html += `<div class="section-title" style="margin-top:0">✅ Identificados (${identificados.length})</div>`;
+  html += `<div class="panel">`;
+  html += `<div class="section-title ok"><span class="dot"></span>Identificados <span class="count">(${identificados.length})</span></div>`;
   if (identificados.length) {
     html += `<table><thead><tr><th>Archivo original</th><th>Nuevo nombre</th><th>Fuente</th><th></th></tr></thead><tbody>`;
     identificados.forEach((d, i) => {
@@ -334,8 +410,8 @@ function renderResultados(identificados, revisar) {
   }
   html += `</div>`;
 
-  html += `<div class="card">`;
-  html += `<div class="section-title">⚠️ Para revisar manualmente (${revisar.length})</div>`;
+  html += `<div class="panel">`;
+  html += `<div class="section-title warn"><span class="dot"></span>Para revisar manualmente <span class="count">(${revisar.length})</span></div>`;
   if (revisar.length) {
     html += `<table><thead><tr><th>Archivo</th><th>Motivo</th></tr></thead><tbody>`;
     revisar.forEach(d => {
@@ -402,7 +478,7 @@ async function descargarTodos() {
 }
 
 const dz = document.getElementById('drop-zone');
-dz.addEventListener('dragover', e => { e.preventDefault(); dz.style.borderColor = 'var(--green)'; });
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.style.borderColor = 'var(--accent)'; });
 dz.addEventListener('dragleave', () => { dz.style.borderColor = ''; });
 dz.addEventListener('drop', e => {
   e.preventDefault();
