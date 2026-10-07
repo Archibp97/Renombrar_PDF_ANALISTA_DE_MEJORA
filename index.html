@@ -14,16 +14,19 @@
   --accent:#1F4E79; --accent-hover:#173D60; --accent-tint:#E7EEF5;
   --success:#1E7C5A; --success-tint:#E3F3EC;
   --warn:#A6631B; --warn-tint:#FBF1E0;
+  --danger:#A8362E; --danger-tint:#FBEAE8;
   --mono-bg:#14161B; --mono-text:#C6D0E0; --mono-text-2:#767F91;
   --font-sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
   --font-mono:ui-monospace,"SFMono-Regular","Consolas","Menlo",monospace;
   --r-sm:4px; --r-md:3px;
 }
 *{box-sizing:border-box;margin:0;padding:0;}
+[hidden]{display:none!important;}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
 body{font-family:var(--font-sans);background:var(--bg);color:var(--ink);font-size:14px;line-height:1.55;}
 
 header.topbar{background:var(--surface);border-bottom:1px solid var(--line);}
-.topbar-inner{max-width:860px;margin:0 auto;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;gap:16px;}
+.topbar-inner{max-width:860px;margin:0 auto;padding:16px 20px 12px;display:flex;align-items:center;justify-content:space-between;gap:16px;}
 .brand{display:flex;align-items:center;gap:10px;}
 .brand-mark{width:26px;height:20px;display:flex;flex-direction:column;justify-content:space-between;flex-shrink:0;}
 .brand-mark span{display:block;height:3px;background:var(--accent);border-radius:1px;}
@@ -34,48 +37,73 @@ header.topbar{background:var(--surface);border-bottom:1px solid var(--line);}
 .brand-text .tagline{font-size:12px;color:var(--ink-3);margin-top:1px;}
 .env-tag{font-size:11.5px;color:var(--ink-2);border:1px solid var(--line-strong);border-radius:var(--r-sm);padding:3px 9px;white-space:nowrap;}
 
-.wrap{max-width:860px;margin:0 auto;padding:28px 20px 48px;}
+.tabbar{max-width:860px;margin:0 auto;padding:0 20px;display:flex;gap:4px;}
+.tab{position:relative;top:1px;background:none;border:none;border-bottom:2px solid transparent;border-radius:0;padding:10px 14px 11px;font-size:13.5px;font-weight:500;color:var(--ink-2);display:flex;align-items:center;gap:8px;}
+.tab:hover{color:var(--ink);background:none;}
+.tab[aria-selected="true"]{color:var(--accent);border-bottom-color:var(--accent);font-weight:600;}
+.tab-count{font-size:11px;font-weight:600;color:var(--ink-2);background:var(--bg);border:1px solid var(--line);border-radius:3px;padding:0 6px;min-width:20px;text-align:center;}
 
-.intro{font-size:13.5px;color:var(--ink-2);max-width:62ch;margin-bottom:22px;}
+.wrap{max-width:860px;margin:0 auto;padding:28px 20px 48px;}
+.intro{font-size:13.5px;color:var(--ink-2);max-width:66ch;margin-bottom:22px;}
 
 .panel{background:var(--surface);border:1px solid var(--line);border-radius:0;padding:20px 22px;margin-bottom:20px;}
 
 .note{border-left:2px solid var(--accent);background:var(--accent-tint);padding:12px 16px;font-size:12.5px;color:var(--ink-2);margin-bottom:20px;line-height:1.6;}
 .note strong{font-weight:600;color:var(--ink);}
 .note code{font-family:var(--font-mono);font-size:11.5px;background:rgba(22,23,27,0.06);padding:1px 5px;border-radius:3px;}
+.note.alert{border-left-color:var(--warn);background:var(--warn-tint);}
 
-.upload-zone{position:relative;border:1px dashed var(--line-strong);padding:34px 24px;text-align:center;cursor:pointer;transition:border-color .15s,background-color .15s;}
-.upload-zone:hover{border-color:var(--accent);background:var(--accent-tint);}
+.fields{display:grid;grid-template-columns:1fr 1fr;gap:20px;}
+.field-label{display:block;font-size:12.5px;font-weight:600;margin-bottom:6px;}
+.field-label .req{font-weight:400;color:var(--ink-3);}
+input[type=date],input[type=search]{font-family:inherit;font-size:13.5px;color:var(--ink);background:var(--surface);border:1px solid var(--line-strong);border-radius:var(--r-sm);padding:8px 10px;}
+input[type=date]{width:100%;}
+input[type=date]:disabled{background:var(--bg);color:var(--ink-3);}
+input.invalid{border-color:var(--danger);}
+.static-value{border:1px solid var(--line);background:var(--bg);border-radius:var(--r-sm);padding:8px 10px;font-size:13.5px;color:var(--ink-2);font-variant-numeric:tabular-nums;}
+.field-hint{font-size:11.5px;color:var(--ink-3);margin-top:5px;}
+.field-error{font-size:12.5px;color:var(--danger);background:var(--danger-tint);border-radius:var(--r-sm);padding:6px 10px;margin-top:6px;}
+
+.upload-zone{position:relative;border:1px dashed var(--line-strong);padding:34px 24px;text-align:center;cursor:pointer;transition:border-color .15s,background-color .15s,opacity .15s;}
+.upload-zone:not(.locked):not(.busy):hover{border-color:var(--accent);background:var(--accent-tint);}
+.upload-zone.locked{opacity:.6;cursor:not-allowed;background:var(--bg);}
+.upload-zone.busy{opacity:.6;cursor:progress;}
 .upload-zone input[type=file]{display:none;}
 .corner{position:absolute;width:12px;height:12px;border:2px solid var(--line-strong);}
-.upload-zone:hover .corner{border-color:var(--accent);}
+.upload-zone:not(.locked):not(.busy):hover .corner{border-color:var(--accent);}
 .corner.tl{top:6px;left:6px;border-right:none;border-bottom:none;}
 .corner.tr{top:6px;right:6px;border-left:none;border-bottom:none;}
 .corner.bl{bottom:6px;left:6px;border-right:none;border-top:none;}
 .corner.br{bottom:6px;right:6px;border-left:none;border-top:none;}
 .upload-icon{margin:0 auto 10px;width:28px;height:28px;color:var(--ink-3);}
-.upload-zone:hover .upload-icon{color:var(--accent);}
+.upload-zone:not(.locked):not(.busy):hover .upload-icon{color:var(--accent);}
 .upload-label{font-size:13px;color:var(--ink-2);}
 .upload-label strong{color:var(--accent);font-weight:600;}
+.lock-hint{display:none;font-size:12px;color:var(--danger);margin-top:8px;font-weight:600;}
+.upload-zone.locked .lock-hint{display:block;}
 #file-count{font-size:12px;color:var(--ink-2);margin-top:10px;}
 
 button{cursor:pointer;font-family:inherit;font-size:13px;border-radius:var(--r-sm);border:1px solid var(--line-strong);background:var(--surface);color:var(--ink);padding:9px 16px;transition:background-color .15s,border-color .15s;}
 button:disabled{opacity:0.45;cursor:not-allowed;}
 .btn-green{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600;width:100%;padding:11px;font-size:13.5px;margin-top:14px;}
 .btn-green:hover:not(:disabled){background:var(--accent-hover);border-color:var(--accent-hover);}
+.btn-link{background:none;border:none;padding:0;color:var(--accent);font-weight:600;text-decoration:underline;}
 
 #log{font-family:var(--font-mono);font-size:11.5px;background:var(--mono-bg);color:var(--mono-text);border-radius:var(--r-sm);padding:12px 14px;max-height:190px;overflow-y:auto;white-space:pre-wrap;margin-top:14px;display:none;}
 .log-label{font-size:11px;color:var(--ink-3);margin-top:14px;display:none;}
 .log-label.visible{display:block;}
 
+.table-scroll{overflow-x:auto;}
 table{width:100%;border-collapse:collapse;font-size:13px;margin-top:12px;}
-th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);}
-th{font-size:12px;color:var(--ink-2);font-weight:600;}
+th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top;}
+th{font-size:12px;color:var(--ink-2);font-weight:600;white-space:nowrap;}
+td.nowrap{white-space:nowrap;font-variant-numeric:tabular-nums;}
 tbody tr{transition:background-color .1s;}
 tbody tr:hover{background:var(--bg);}
 td strong{font-family:var(--font-mono);font-weight:600;font-size:12.5px;}
+.detail{font-size:12px;color:var(--ink-3);margin-top:2px;}
 
-.badge{font-size:11px;font-weight:600;padding:2px 8px;border-radius:var(--r-md);display:inline-block;}
+.badge{font-size:11px;font-weight:600;padding:2px 8px;border-radius:var(--r-md);display:inline-block;white-space:nowrap;}
 .badge.alta{background:var(--success-tint);color:var(--success);}
 .badge.parcial{background:var(--warn-tint);color:var(--warn);}
 .badge.ninguna{background:var(--bg);color:var(--ink-3);}
@@ -86,14 +114,42 @@ td strong{font-family:var(--font-mono);font-weight:600;font-size:12.5px;}
 .section-title.warn .dot{background:var(--warn);}
 .section-title .count{color:var(--ink-3);font-weight:500;}
 
+.resumen{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--line);margin-bottom:18px;}
+.resumen-item{padding:12px 14px;border-right:1px solid var(--line);}
+.resumen-item:last-child{border-right:none;}
+.resumen-num{font-size:20px;font-weight:600;line-height:1.2;font-variant-numeric:tabular-nums;}
+.resumen-lbl{font-size:12px;color:var(--ink-2);margin-top:2px;}
+.resumen-item.ok .resumen-num{color:var(--success);}
+.resumen-item.warn .resumen-num{color:var(--warn);}
+.lote-row td{background:var(--bg);font-size:12px;font-weight:600;color:var(--ink-2);border-bottom:1px solid var(--line-strong);padding-top:8px;padding-bottom:8px;}
+tbody tr.lote-row:hover{background:transparent;}
+
+.hist-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding-bottom:12px;border-bottom:1px solid var(--line);}
+.hist-title{font-size:13.5px;font-weight:600;}
+.hist-title .count{color:var(--ink-3);font-weight:500;}
+.hist-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+.hist-actions input[type=search]{width:220px;}
+.hist-actions button{padding:8px 14px;}
+.hist-toolbar + .table-scroll table{margin-top:0;}
+
 .empty{color:var(--ink-3);font-size:13px;padding:14px 0 2px;}
 a.dl{color:var(--accent);font-weight:600;text-decoration:none;font-size:12.5px;}
 a.dl:hover{text-decoration:underline;}
 
 .zip-note{font-size:12px;color:var(--ink-2);margin-top:10px;line-height:1.6;}
+.zip-note + .zip-note{margin-top:6px;}
 .zip-note strong{color:var(--ink);font-family:var(--font-mono);font-weight:600;}
 
 footer.foot{max-width:860px;margin:0 auto;padding:0 20px 40px;font-size:11.5px;color:var(--ink-3);}
+
+@media (max-width:560px){
+  .fields{grid-template-columns:1fr;}
+  .hist-actions input[type=search]{width:100%;}
+  .resumen{grid-template-columns:1fr 1fr;}
+  .resumen-item:nth-child(2){border-right:none;}
+  .resumen-item:nth-child(-n+2){border-bottom:1px solid var(--line);}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;}}
 </style>
 </head>
 <body>
@@ -108,42 +164,110 @@ footer.foot{max-width:860px;margin:0 auto;padding:0 20px 40px;font-size:11.5px;c
     </div>
     <div class="env-tag">Procesamiento local</div>
   </div>
+  <div class="tabbar" role="tablist" aria-label="Secciones" id="tablist">
+    <button class="tab" role="tab" id="tab-renombrar" aria-selected="true" aria-controls="vista-renombrar" onclick="cambiarVista('renombrar')">Renombrar</button>
+    <button class="tab" role="tab" id="tab-historial" aria-selected="false" aria-controls="vista-historial" tabindex="-1" onclick="cambiarVista('historial')">Historial <span class="tab-count" id="tab-count">0</span></button>
+  </div>
 </header>
 
 <div class="wrap">
-  <div class="intro">Sube tus escaneos y se renombran solos según el número de pedido detectado en cada imagen.</div>
 
-  <div class="note">
-    <strong>Cómo funciona.</strong> El programa lee cada imagen con OCR buscando un patrón tipo
-    <code>024-COT-610115</code> o <code>016-CG-00002465</code>. Si lo encuentra con seguridad, te da el archivo
-    ya renombrado para descargar. Si no está seguro (tablas muy anchas, números escritos a mano, escaneos
-    borrosos), el archivo queda en "Para revisar" sin tocar — nunca inventa un nombre. Todo corre en tu
-    navegador; las imágenes no se suben a ningún servidor.
-  </div>
+  <!-- ============ PESTAÑA: RENOMBRAR ============ -->
+  <section id="vista-renombrar" role="tabpanel" aria-labelledby="tab-renombrar">
+    <div class="intro">Digita la fecha del pedido, sube tus escaneos y se renombran solos según el número de pedido detectado en cada imagen. Cada proceso queda registrado en la pestaña Historial.</div>
 
-  <div class="panel">
-    <div class="upload-zone" id="drop-zone" onclick="document.getElementById('file-input').click()">
-      <span class="corner tl"></span><span class="corner tr"></span>
-      <span class="corner bl"></span><span class="corner br"></span>
-      <input type="file" id="file-input" multiple accept="image/*" onchange="onFilesSelected(event)">
-      <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-        <path d="M12 4v11m0-11 4 4m-4-4-4 4" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>
-      <div class="upload-label"><strong>Elegí las imágenes</strong> o arrastralas aquí</div>
-      <div id="file-count"></div>
+    <div class="note">
+      <strong>Cómo funciona.</strong> El programa lee cada imagen con OCR buscando un patrón tipo
+      <code>024-COT-610115</code> o <code>016-CG-00002465</code>. Si lo encuentra con seguridad, te da el archivo
+      ya renombrado para descargar. Si no está seguro (tablas muy anchas, números escritos a mano, escaneos
+      borrosos), el archivo queda en "Para revisar" sin tocar — nunca inventa un nombre. Todo corre en tu
+      navegador; las imágenes no se suben a ningún servidor.
     </div>
-    <button class="btn-green" id="btn-procesar" onclick="procesarTodos()" disabled>Procesar imágenes</button>
-    <div class="log-label" id="log-label">Registro de proceso</div>
-    <div id="log"></div>
-  </div>
 
-  <div id="resultados"></div>
+    <div class="panel">
+      <div class="fields">
+        <div class="field">
+          <label class="field-label" for="fecha-pedido">Fecha del pedido <span class="req">(obligatoria)</span></label>
+          <input type="date" id="fecha-pedido" oninput="onFechaCambio()" onchange="onFechaCambio()">
+          <div class="field-error" id="fecha-error" role="alert" hidden></div>
+        </div>
+        <div class="field">
+          <span class="field-label" id="lbl-fecha-ren">Fecha de renombrado</span>
+          <div class="static-value" id="fecha-renombrado" aria-labelledby="lbl-fecha-ren">—</div>
+          <div class="field-hint">Se toma sola del equipo al procesar.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="upload-zone locked" id="drop-zone" role="button" tabindex="0" aria-disabled="true" onclick="abrirSelector()">
+        <span class="corner tl"></span><span class="corner tr"></span>
+        <span class="corner bl"></span><span class="corner br"></span>
+        <input type="file" id="file-input" multiple accept="image/*" onchange="onFilesSelected(event)">
+        <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <path d="M12 4v11m0-11 4 4m-4-4-4 4" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <div class="upload-label"><strong>Elegí las imágenes</strong> o arrastralas aquí</div>
+        <div class="lock-hint" id="lock-hint">Primero digita la fecha del pedido</div>
+        <div id="file-count"></div>
+      </div>
+      <button class="btn-green" id="btn-procesar" onclick="procesarTodos()" disabled>Procesar imágenes</button>
+      <div class="log-label" id="log-label">Registro de proceso</div>
+      <div id="log"></div>
+    </div>
+
+    <div id="resultados"></div>
+  </section>
+
+  <!-- ============ PESTAÑA: HISTORIAL ============ -->
+  <section id="vista-historial" role="tabpanel" aria-labelledby="tab-historial" hidden>
+    <div class="intro">Registro de cada archivo procesado: cuándo se hizo el pedido, cuándo se renombró y cómo quedó.</div>
+
+    <div class="note alert" id="hist-aviso" hidden>
+      Este navegador no permite guardar el historial (puede ser el modo privado o una restricción de la
+      configuración). Los registros solo duran mientras esta página siga abierta: exporta el CSV para conservarlos.
+    </div>
+
+    <div class="panel">
+      <div class="resumen" id="hist-resumen" hidden></div>
+      <div class="hist-toolbar">
+        <div class="hist-title">Historial de renombrados <span class="count" id="hist-count"></span></div>
+        <div class="hist-actions">
+          <input type="search" id="hist-buscar" placeholder="Buscar pedido o archivo" aria-label="Buscar en el historial" oninput="renderHistorial()">
+          <button id="btn-export" onclick="exportarCSV()">Exportar todo (CSV)</button>
+        </div>
+      </div>
+      <div id="hist-cuerpo"></div>
+      <div class="zip-note">El historial se guarda en este navegador y en este equipo. Si borras los datos del navegador se pierde: exporta el CSV de vez en cuando como respaldo.</div>
+    </div>
+  </section>
+
 </div>
 
 <footer class="foot">Herramienta interna — ningún archivo sale de este equipo durante el procesamiento.</footer>
 
 <script>
+/* ============ UTILIDADES ============ */
+const pad = n => String(n).padStart(2, '0');
+
+function hoyISO(d = new Date()) {
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+function fmtFecha(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : (iso || '');
+}
+function fmtFechaHora(ts) {
+  const d = new Date(ts);
+  if (isNaN(d)) return ts || '';
+  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+/* ============ DETECCIÓN DE PEDIDO ============ */
 const COT_FULL = /(\d{3})\s*-\s*(COT)\s*-\s*(\d{6})(?!\d)/i;
 const CG_FULL = /(\d{3})\s*-\s*(CG)\s*-\s*(\d{8})(?!\d)/i;
 const COT_PARTIAL = /\bCOT\s*-\s*(\d{6})(?!\d)/i;
@@ -161,9 +285,11 @@ function findPedido(text) {
   return { pedido: null, confianza: 'ninguna' };
 }
 
+/* ============ ESTADO ============ */
 let archivosSeleccionados = [];
 let workerPool = [];
 let workerPoolListo = null;
+let procesando = false;
 
 const NUM_WORKERS = Math.min(4, Math.max(2, (navigator.hardwareConcurrency || 4) - 1));
 
@@ -189,13 +315,261 @@ async function getWorkerPool() {
   return workerPool;
 }
 
-function onFilesSelected(e) {
-  archivosSeleccionados = Array.from(e.target.files);
-  document.getElementById('file-count').textContent =
-    archivosSeleccionados.length ? `${archivosSeleccionados.length} archivo(s) listos.` : '';
-  document.getElementById('btn-procesar').disabled = archivosSeleccionados.length === 0;
+/* ============ FECHA DEL PEDIDO (obligatoria) ============ */
+function refrescarFechaHoy() {
+  const hoy = new Date();
+  document.getElementById('fecha-renombrado').textContent = fmtFecha(hoyISO(hoy));
+  document.getElementById('fecha-pedido').max = hoyISO(hoy);
 }
 
+function estadoFechaPedido() {
+  const v = document.getElementById('fecha-pedido').value;
+  if (!v) return { ok: false, motivo: 'vacia' };
+  if (v > hoyISO()) return { ok: false, motivo: 'futura' };
+  return { ok: true, valor: v };
+}
+
+function mostrarErrorFecha(msg) {
+  const e = document.getElementById('fecha-error');
+  const i = document.getElementById('fecha-pedido');
+  e.textContent = msg;
+  e.hidden = false;
+  i.classList.add('invalid');
+  i.setAttribute('aria-invalid', 'true');
+}
+
+function limpiarErrorFecha() {
+  const i = document.getElementById('fecha-pedido');
+  document.getElementById('fecha-error').hidden = true;
+  i.classList.remove('invalid');
+  i.removeAttribute('aria-invalid');
+}
+
+function exigirFechaPedido() {
+  const st = estadoFechaPedido();
+  if (st.ok) { limpiarErrorFecha(); return st.valor; }
+  mostrarErrorFecha(st.motivo === 'futura'
+    ? 'La fecha del pedido no puede ser posterior a hoy.'
+    : 'Debe digitar la fecha del pedido antes de subir las imágenes.');
+  document.getElementById('fecha-pedido').focus();
+  return null;
+}
+
+function onFechaCambio() {
+  const st = estadoFechaPedido();
+  if (st.ok) limpiarErrorFecha();
+  else if (st.motivo === 'futura') mostrarErrorFecha('La fecha del pedido no puede ser posterior a hoy.');
+  actualizarEstado();
+}
+
+function actualizarEstado() {
+  const dz = document.getElementById('drop-zone');
+  const ok = estadoFechaPedido().ok;
+  dz.classList.toggle('locked', !ok);
+  dz.classList.toggle('busy', procesando);
+  dz.setAttribute('aria-disabled', String(!ok || procesando));
+  document.getElementById('btn-procesar').disabled = procesando || !ok || archivosSeleccionados.length === 0;
+}
+
+function actualizarConteo() {
+  document.getElementById('file-count').textContent =
+    archivosSeleccionados.length ? `${archivosSeleccionados.length} archivo(s) listos.` : '';
+}
+
+function abrirSelector() {
+  if (procesando) return;
+  if (!exigirFechaPedido()) return;
+  document.getElementById('file-input').click();
+}
+
+function onFilesSelected(e) {
+  if (procesando || !exigirFechaPedido()) { e.target.value = ''; return; }
+  archivosSeleccionados = Array.from(e.target.files);
+  actualizarConteo();
+  actualizarEstado();
+}
+
+/* ============ HISTORIAL ============ */
+const HIST_KEY = 'renombrador_historial_v1';
+let historial = [];
+let historialOk = true;
+
+function cargarHistorial() {
+  try {
+    const raw = localStorage.getItem(HIST_KEY);
+    const datos = raw ? JSON.parse(raw) : [];
+    historial = Array.isArray(datos) ? datos : [];
+    historialOk = true;
+  } catch (err) {
+    historial = [];
+    historialOk = false;
+  }
+}
+
+function guardarHistorial(nuevos) {
+  historial = historial.concat(nuevos);
+  try {
+    localStorage.setItem(HIST_KEY, JSON.stringify(historial));
+    historialOk = true;
+  } catch (err) {
+    historialOk = false;
+  }
+  return historialOk;
+}
+
+function actualizarContadorHistorial() {
+  document.getElementById('tab-count').textContent = historial.length;
+  document.getElementById('hist-aviso').hidden = historialOk;
+}
+
+function filasOrdenadas() {
+  return historial
+    .map((h, i) => ({ h, i }))
+    .sort((a, b) => (b.h.fechaRenombrado || '').localeCompare(a.h.fechaRenombrado || '') || a.i - b.i)
+    .map(x => x.h);
+}
+
+function estadoTexto(h) {
+  return h.estado === 'renombrado' ? 'Renombrado' : 'Para revisar';
+}
+
+// Un lote = todos los archivos procesados en una misma corrida (mismo sello de fecha/hora y misma fecha de pedido).
+// Se deduce de los datos, así funciona también con registros guardados antes de esta mejora.
+function claveLote(h) {
+  return (h.fechaRenombrado || '') + '|' + (h.fechaPedido || '');
+}
+
+function contarLotes() {
+  const lotes = {};
+  historial.forEach(h => {
+    const l = (lotes[claveLote(h)] = lotes[claveLote(h)] || { total: 0, ren: 0, rev: 0 });
+    l.total++;
+    if (h.estado === 'renombrado') l.ren++; else l.rev++;
+  });
+  return lotes;
+}
+
+function plural(n, uno, varios) {
+  return `${n} ${n === 1 ? uno : varios}`;
+}
+
+function renderHistorial() {
+  const cont = document.getElementById('hist-cuerpo');
+  const q = document.getElementById('hist-buscar').value.trim().toLowerCase();
+  const todas = filasOrdenadas();
+  const visibles = q
+    ? todas.filter(h => [h.original, h.nuevo, h.detalle, fmtFecha(h.fechaPedido), fmtFechaHora(h.fechaRenombrado), estadoTexto(h)]
+        .join(' ').toLowerCase().includes(q))
+    : todas;
+
+  document.getElementById('hist-count').textContent =
+    todas.length ? (q ? `(${visibles.length} de ${todas.length})` : `(${todas.length})`) : '';
+  document.getElementById('btn-export').disabled = todas.length === 0;
+
+  const lotes = contarLotes();
+  const resumen = document.getElementById('hist-resumen');
+  if (todas.length) {
+    const ren = todas.filter(h => h.estado === 'renombrado').length;
+    resumen.innerHTML = `
+      <div class="resumen-item"><div class="resumen-num">${todas.length}</div><div class="resumen-lbl">Documentos escaneados</div></div>
+      <div class="resumen-item ok"><div class="resumen-num">${ren}</div><div class="resumen-lbl">Renombrados</div></div>
+      <div class="resumen-item warn"><div class="resumen-num">${todas.length - ren}</div><div class="resumen-lbl">Para revisar</div></div>
+      <div class="resumen-item"><div class="resumen-num">${Object.keys(lotes).length}</div><div class="resumen-lbl">Lotes procesados</div></div>`;
+    resumen.hidden = false;
+  } else {
+    resumen.hidden = true;
+  }
+
+  if (!todas.length) {
+    cont.innerHTML = `<div class="empty">Aún no hay registros. Cuando proceses imágenes en la pestaña
+      <button class="btn-link" onclick="cambiarVista('renombrar')">Renombrar</button>, aparecerán aquí.</div>`;
+    return;
+  }
+  if (!visibles.length) {
+    cont.innerHTML = `<div class="empty">Ningún registro coincide con la búsqueda.</div>`;
+    return;
+  }
+
+  let html = `<div class="table-scroll"><table><thead><tr>
+    <th>Fecha de renombrado</th><th>Fecha del pedido</th><th>Archivo original</th><th>Resultado</th><th>Estado</th>
+  </tr></thead><tbody>`;
+  let claveAnterior = null;
+  visibles.forEach(h => {
+    const clave = claveLote(h);
+    if (clave !== claveAnterior) {
+      const l = lotes[clave];
+      html += `<tr class="lote-row"><td colspan="5">Lote de ${plural(l.total, 'documento escaneado', 'documentos escaneados')}:
+        ${plural(l.ren, 'renombrado', 'renombrados')}, ${l.rev} para revisar</td></tr>`;
+      claveAnterior = clave;
+    }
+    const resultado = (h.nuevo ? `<strong>${esc(h.nuevo)}</strong>` : '') +
+      (h.detalle ? `<div class="detail">${esc(h.detalle)}</div>` : '');
+    const badge = h.estado === 'renombrado'
+      ? `<span class="badge alta">Renombrado</span>`
+      : `<span class="badge parcial">Para revisar</span>`;
+    html += `<tr>
+      <td class="nowrap">${esc(fmtFechaHora(h.fechaRenombrado))}</td>
+      <td class="nowrap">${esc(fmtFecha(h.fechaPedido))}</td>
+      <td>${esc(h.original || '')}</td>
+      <td>${resultado}</td>
+      <td>${badge}</td>
+    </tr>`;
+  });
+  html += `</tbody></table></div>`;
+  cont.innerHTML = html;
+}
+
+function construirCSV() {
+  const cab = ['Fecha de renombrado', 'Fecha del pedido', 'Archivo original', 'Nuevo nombre', 'Estado', 'Detalle', 'Documentos escaneados en el lote'];
+  const lotes = contarLotes();
+  const celda = v => {
+    let s = v == null ? '' : String(v);
+    if (/^[=+\-@]/.test(s)) s = "'" + s;
+    return '"' + s.replace(/"/g, '""') + '"';
+  };
+  const lineas = ['sep=;', cab.map(celda).join(';')];
+  filasOrdenadas().forEach(h => {
+    lineas.push([
+      fmtFechaHora(h.fechaRenombrado), fmtFecha(h.fechaPedido), h.original,
+      h.nuevo || '', estadoTexto(h), h.detalle || '', lotes[claveLote(h)].total
+    ].map(celda).join(';'));
+  });
+  return lineas.join('\r\n');
+}
+
+function exportarCSV() {
+  if (!historial.length) return;
+  const blob = new Blob(['\uFEFF' + construirCSV()], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `historial_renombrados_${hoyISO()}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+/* ============ PESTAÑAS ============ */
+function cambiarVista(nombre) {
+  const esHist = nombre === 'historial';
+  document.getElementById('vista-renombrar').hidden = esHist;
+  document.getElementById('vista-historial').hidden = !esHist;
+  const tr = document.getElementById('tab-renombrar');
+  const th = document.getElementById('tab-historial');
+  tr.setAttribute('aria-selected', String(!esHist));
+  th.setAttribute('aria-selected', String(esHist));
+  tr.tabIndex = esHist ? -1 : 0;
+  th.tabIndex = esHist ? 0 : -1;
+  if (esHist) renderHistorial();
+}
+
+document.getElementById('tablist').addEventListener('keydown', e => {
+  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+  const haciaHist = document.getElementById('tab-renombrar').getAttribute('aria-selected') === 'true';
+  cambiarVista(haciaHist ? 'historial' : 'renombrar');
+  document.getElementById(haciaHist ? 'tab-historial' : 'tab-renombrar').focus();
+});
+
+/* ============ LOG ============ */
 function appendLog(msg) {
   const log = document.getElementById('log');
   log.style.display = 'block';
@@ -204,6 +578,7 @@ function appendLog(msg) {
   log.scrollTop = log.scrollHeight;
 }
 
+/* ============ OCR ============ */
 function buscarPorLineasCercanas(data) {
   if (!data.lines) return { pedido: null, confianza: 'ninguna' };
   const lineas = data.lines.map(l => l.words.map(w => w.text).filter(Boolean));
@@ -299,9 +674,24 @@ async function ocrFileTesseract(file, w) {
   return [r1, r2, r3, rLineas].find(c => c.confianza === 'parcial') || { pedido: null, confianza: 'ninguna' };
 }
 
+/* ============ PROCESAR ============ */
+function motivoTexto(d) {
+  if (d.motivo) return d.motivo;
+  if (d.confianza === 'parcial') return `Posible pedido: ${d.pedido} — verificar contra la imagen`;
+  if (d.confianza === 'error') return 'Error al leer la imagen';
+  return 'No se encontró ningún número de pedido';
+}
+
 async function procesarTodos() {
+  if (procesando) return;
+  const fechaPedido = exigirFechaPedido();
+  if (!fechaPedido) return;
+
   const btn = document.getElementById('btn-procesar');
-  btn.disabled = true;
+  procesando = true;
+  document.getElementById('fecha-pedido').disabled = true;
+  refrescarFechaHoy();
+  actualizarEstado();
   btn.textContent = 'Procesando...';
   document.getElementById('log').textContent = '';
   document.getElementById('resultados').innerHTML = '';
@@ -369,18 +759,40 @@ async function procesarTodos() {
 
   const revisar = detectados.filter(d => d.confianza !== 'alta' && d.confianza !== 'parcial-sin-prefijo');
 
-  renderResultados(identificados, revisar);
+  // Registro de trazabilidad: un solo sello de fecha/hora para todo el lote
+  const sello = new Date().toISOString();
+  const registros = [
+    ...identificados.map(d => ({
+      fechaPedido, fechaRenombrado: sello, original: d.file.name, nuevo: d.nuevoNombre,
+      estado: 'renombrado',
+      detalle: d.confianza === 'parcial-sin-prefijo' ? 'Detectado sin el prefijo de 3 dígitos' : ''
+    })),
+    ...revisar.map(d => ({
+      fechaPedido, fechaRenombrado: sello, original: d.file.name, nuevo: null,
+      estado: 'revisar', detalle: motivoTexto(d)
+    }))
+  ];
+  const guardado = guardarHistorial(registros);
+  actualizarContadorHistorial();
+  renderHistorial();
 
-  btn.disabled = false;
+  renderResultados(identificados, revisar, { guardado, total: registros.length, fechaPedido });
+
+  procesando = false;
+  document.getElementById('fecha-pedido').disabled = false;
   btn.textContent = 'Procesar imágenes';
+  actualizarEstado();
 }
 
-function renderResultados(identificados, revisar) {
+function renderResultados(identificados, revisar, info) {
   const cont = document.getElementById('resultados');
   let html = '';
 
   const totalParaDescargar = identificados.length + revisar.length;
   if (totalParaDescargar > 0) {
+    const notaHistorial = info.guardado
+      ? `Se registraron ${info.total} archivo(s) en la pestaña Historial, con fecha de pedido ${fmtFecha(info.fechaPedido)}.`
+      : `No se pudo guardar en el historial de este navegador. Los registros siguen visibles en la pestaña Historial mientras no cierres la página: exporta el CSV para conservarlos.`;
     html += `<div class="panel">
       <button class="btn-green" id="btn-descargar-todos" onclick="descargarTodos()">
         Descargar todo (.zip, organizado en carpetas)
@@ -390,21 +802,22 @@ function renderResultados(identificados, revisar) {
         listos para usar) y <strong>revisar/</strong> (${revisar.length} archivo(s) con su nombre original, para
         que completes solo esos a mano).
       </div>
+      <div class="zip-note">${notaHistorial}</div>
     </div>`;
   }
 
   html += `<div class="panel">`;
   html += `<div class="section-title ok"><span class="dot"></span>Identificados <span class="count">(${identificados.length})</span></div>`;
   if (identificados.length) {
-    html += `<table><thead><tr><th>Archivo original</th><th>Nuevo nombre</th><th>Fuente</th><th></th></tr></thead><tbody>`;
+    html += `<div class="table-scroll"><table><thead><tr><th>Archivo original</th><th>Nuevo nombre</th><th>Fuente</th><th></th></tr></thead><tbody>`;
     identificados.forEach((d, i) => {
       const fuente = d.confianza === 'parcial-sin-prefijo'
         ? `<span class="badge parcial" title="El patrón calzó y los dígitos tienen buena confianza, pero no se encontró el prefijo de 3 dígitos">OCR (sin prefijo)</span>`
         : `<span class="badge alta">OCR</span>`;
-      html += `<tr><td>${d.file.name}</td><td><strong>${d.nuevoNombre}</strong></td><td>${fuente}</td>` +
+      html += `<tr><td>${esc(d.file.name)}</td><td><strong>${esc(d.nuevoNombre)}</strong></td><td>${fuente}</td>` +
               `<td><a class="dl" href="#" onclick="descargarUno(${i});return false;">Descargar</a></td></tr>`;
     });
-    html += `</tbody></table>`;
+    html += `</tbody></table></div>`;
   } else {
     html += `<div class="empty">Ninguno esta vez — revisa la lista de abajo.</div>`;
   }
@@ -413,16 +826,16 @@ function renderResultados(identificados, revisar) {
   html += `<div class="panel">`;
   html += `<div class="section-title warn"><span class="dot"></span>Para revisar manualmente <span class="count">(${revisar.length})</span></div>`;
   if (revisar.length) {
-    html += `<table><thead><tr><th>Archivo</th><th>Motivo</th></tr></thead><tbody>`;
+    html += `<div class="table-scroll"><table><thead><tr><th>Archivo</th><th>Motivo</th></tr></thead><tbody>`;
     revisar.forEach(d => {
       const motivo = d.motivo
-        ? d.motivo
+        ? esc(d.motivo)
         : d.confianza === 'parcial'
-        ? `Posible pedido: <strong>${d.pedido}</strong> — verifícalo contra la imagen, el OCR a veces confunde un dígito`
+        ? `Posible pedido: <strong>${esc(d.pedido)}</strong> — verifícalo contra la imagen, el OCR a veces confunde un dígito`
         : d.confianza === 'error' ? 'Error al leer la imagen' : 'No se encontró ningún número de pedido';
-      html += `<tr><td>${d.file.name}</td><td>${motivo}</td></tr>`;
+      html += `<tr><td>${esc(d.file.name)}</td><td>${motivo}</td></tr>`;
     });
-    html += `</tbody></table>`;
+    html += `</tbody></table></div>`;
   } else {
     html += `<div class="empty">Nada que revisar — todos se identificaron.</div>`;
   }
@@ -433,6 +846,7 @@ function renderResultados(identificados, revisar) {
   window.__revisar = revisar;
 }
 
+/* ============ DESCARGAS ============ */
 function descargarUno(i) {
   const d = window.__identificados[i];
   const a = document.createElement('a');
@@ -477,17 +891,32 @@ async function descargarTodos() {
   btn.textContent = 'Descargar todo (.zip, organizado en carpetas)';
 }
 
+/* ============ ARRASTRAR Y SOLTAR ============ */
 const dz = document.getElementById('drop-zone');
-dz.addEventListener('dragover', e => { e.preventDefault(); dz.style.borderColor = 'var(--accent)'; });
+dz.addEventListener('dragover', e => {
+  e.preventDefault();
+  if (!dz.classList.contains('locked') && !procesando) dz.style.borderColor = 'var(--accent)';
+});
 dz.addEventListener('dragleave', () => { dz.style.borderColor = ''; });
 dz.addEventListener('drop', e => {
   e.preventDefault();
   dz.style.borderColor = '';
+  if (procesando) return;
+  if (!exigirFechaPedido()) return;
   archivosSeleccionados = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
-  document.getElementById('file-count').textContent =
-    archivosSeleccionados.length ? `${archivosSeleccionados.length} archivo(s) listos.` : '';
-  document.getElementById('btn-procesar').disabled = archivosSeleccionados.length === 0;
+  actualizarConteo();
+  actualizarEstado();
 });
+dz.addEventListener('keydown', e => {
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); abrirSelector(); }
+});
+
+/* ============ INICIO ============ */
+cargarHistorial();
+actualizarContadorHistorial();
+refrescarFechaHoy();
+actualizarEstado();
+setInterval(refrescarFechaHoy, 60000);
 </script>
 </body>
 </html>
